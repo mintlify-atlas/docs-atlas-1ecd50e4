@@ -1,0 +1,371 @@
+---
+title: "Users API — registration, login, and profile"
+description: "Manage user accounts in Agropulse: register, authenticate with JWT, retrieve and update profiles, and verify identity via email OTP."
+---
+
+The Users API handles the full lifecycle of an Agropulse account — from initial registration and JWT-based login through profile retrieval, updates, and email OTP verification. Every user is assigned one of three roles (`BUYER`, `SELLER`, or `TRANSPORTER`) which determines which profile type they can create after registration.
+
+<Note>
+  Registration and login endpoints are open to anonymous requests (`AllowAny`). All other endpoints require a valid Bearer token in the `Authorization` header.
+</Note>
+
+---
+
+## POST /api/users/register/
+
+Create a new Agropulse user account. No authentication is required. Passwords are validated for equality before the account is saved.
+
+### Request body
+
+<ParamField body="full_name" type="string" required>
+  The user's full display name.
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  A unique email address used as the login identifier.
+</ParamField>
+
+<ParamField body="phone_number" type="string" required>
+  Contact phone number, up to 20 characters.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Account password. Must match `password_confirm`.
+</ParamField>
+
+<ParamField body="password_confirm" type="string" required>
+  Repeat the password for confirmation. Not stored.
+</ParamField>
+
+<ParamField body="role" type="string" required>
+  The user's role. One of: `BUYER`, `SELLER`, `TRANSPORTER`.
+</ParamField>
+
+### Response — 201 Created
+
+<ResponseField name="id" type="string">
+  UUID primary key for the user.
+</ResponseField>
+
+<ResponseField name="full_name" type="string">
+  The user's full name.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  The user's email address.
+</ResponseField>
+
+<ResponseField name="phone_number" type="string">
+  The user's phone number.
+</ResponseField>
+
+<ResponseField name="role" type="string">
+  Assigned role: `BUYER`, `SELLER`, or `TRANSPORTER`.
+</ResponseField>
+
+<ResponseField name="is_active" type="boolean">
+  Whether the account is active. Defaults to `true`.
+</ResponseField>
+
+<ResponseField name="farmer_profile" type="object | null">
+  Embedded farmer profile, if one exists for this user.
+</ResponseField>
+
+<ResponseField name="buyer_profile" type="object | null">
+  Embedded buyer profile, if one exists for this user.
+</ResponseField>
+
+<ResponseField name="transporter_profile" type="object | null">
+  Embedded transporter profile, if one exists for this user.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp of account creation.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 timestamp of the last update.
+</ResponseField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.agropulse.example.com/api/users/register/ \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "full_name": "Ada Okafor",
+    "email": "ada@example.com",
+    "phone_number": "+2348011223344",
+    "password": "securepassword",
+    "password_confirm": "securepassword",
+    "role": "SELLER"
+  }'
+```
+
+```json Response
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "full_name": "Ada Okafor",
+  "email": "ada@example.com",
+  "phone_number": "+2348011223344",
+  "role": "SELLER",
+  "is_active": true,
+  "farmer_profile": null,
+  "buyer_profile": null,
+  "transporter_profile": null,
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T10:30:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+## POST /api/users/login/
+
+Authenticate with email and password. Returns a JWT access token, a refresh token, and the full user object. No authentication is required to call this endpoint.
+
+### Request body
+
+<ParamField body="email" type="string" required>
+  The registered email address.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password.
+</ParamField>
+
+### Response — 200 OK
+
+<ResponseField name="access" type="string">
+  Short-lived JWT access token. Pass this in the `Authorization: Bearer` header for authenticated requests.
+</ResponseField>
+
+<ResponseField name="refresh" type="string">
+  Long-lived JWT refresh token. Use this to obtain a new access token when the current one expires.
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  Full user detail object.
+
+  <Expandable title="user properties">
+    <ResponseField name="id" type="string">UUID of the user.</ResponseField>
+    <ResponseField name="full_name" type="string">Full display name.</ResponseField>
+    <ResponseField name="email" type="string">Email address.</ResponseField>
+    <ResponseField name="phone_number" type="string">Phone number.</ResponseField>
+    <ResponseField name="role" type="string">User role: `BUYER`, `SELLER`, or `TRANSPORTER`.</ResponseField>
+    <ResponseField name="is_active" type="boolean">Account active status.</ResponseField>
+    <ResponseField name="farmer_profile" type="object | null">Embedded farmer profile or null.</ResponseField>
+    <ResponseField name="buyer_profile" type="object | null">Embedded buyer profile or null.</ResponseField>
+    <ResponseField name="transporter_profile" type="object | null">Embedded transporter profile or null.</ResponseField>
+    <ResponseField name="created_at" type="string">Account creation timestamp.</ResponseField>
+    <ResponseField name="updated_at" type="string">Last update timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.agropulse.example.com/api/users/login/ \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "email": "ada@example.com",
+    "password": "securepassword"
+  }'
+```
+
+```json Response
+{
+  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "full_name": "Ada Okafor",
+    "email": "ada@example.com",
+    "phone_number": "+2348011223344",
+    "role": "SELLER",
+    "is_active": true,
+    "farmer_profile": null,
+    "buyer_profile": null,
+    "transporter_profile": null,
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+</CodeGroup>
+
+---
+
+## GET /api/users/me/
+
+Return the profile of the currently authenticated user. Requires a valid Bearer token.
+
+### Response — 200 OK
+
+Returns the same `UserDetail` object structure as the login response's `user` field, including any embedded profile.
+
+```bash cURL
+curl --request GET \
+  --url https://api.agropulse.example.com/api/users/me/ \
+  --header 'Authorization: Bearer <access_token>'
+```
+
+---
+
+## GET /api/users/
+
+List all users. Returns a JSON array of user objects using the standard `UserSerializer` shape.
+
+```bash cURL
+curl --request GET \
+  --url https://api.agropulse.example.com/api/users/ \
+  --header 'Authorization: Bearer <access_token>'
+```
+
+---
+
+## GET /api/users/{id}/
+
+Retrieve a single user by UUID. Returns the full `UserDetail` representation including embedded profiles.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the user.
+</ParamField>
+
+```bash cURL
+curl --request GET \
+  --url https://api.agropulse.example.com/api/users/a1b2c3d4-e5f6-7890-abcd-ef1234567890/ \
+  --header 'Authorization: Bearer <access_token>'
+```
+
+---
+
+## PATCH /api/users/{id}/
+
+Partially update a user record. Send only the fields you want to change.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the user to update.
+</ParamField>
+
+### Request body (all fields optional)
+
+<ParamField body="full_name" type="string">
+  Updated full name.
+</ParamField>
+
+<ParamField body="phone_number" type="string">
+  Updated phone number.
+</ParamField>
+
+<ParamField body="role" type="string">
+  Updated role. One of: `BUYER`, `SELLER`, `TRANSPORTER`.
+</ParamField>
+
+```bash cURL
+curl --request PATCH \
+  --url https://api.agropulse.example.com/api/users/a1b2c3d4-e5f6-7890-abcd-ef1234567890/ \
+  --header 'Authorization: Bearer <access_token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "phone_number": "+2348099887766"
+  }'
+```
+
+---
+
+## DELETE /api/users/{id}/
+
+Permanently delete a user account by UUID. Returns `204 No Content` on success.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the user to delete.
+</ParamField>
+
+<Warning>
+  Deleting a user is irreversible. All associated profiles (farmer, buyer, transporter) are cascade-deleted automatically.
+</Warning>
+
+```bash cURL
+curl --request DELETE \
+  --url https://api.agropulse.example.com/api/users/a1b2c3d4-e5f6-7890-abcd-ef1234567890/ \
+  --header 'Authorization: Bearer <access_token>'
+```
+
+---
+
+## POST /api/otp/request/
+
+Request a one-time password (OTP) sent to the authenticated user's email address. Requires a valid Bearer token.
+
+The server creates an `EmailDevice` for the user (or reuses an existing one) and triggers the OTP delivery via email.
+
+<Note>
+  The OTP views (`EmailOTPRequestView`, `EmailOTPVerifyView`) are implemented but must be explicitly wired to URL paths in your `urls.py`. See the [authentication guide](/authentication#otp-email-verification) for the example URL configuration.
+</Note>
+
+### Response — 200 OK
+
+<ResponseField name="message" type="string">
+  Confirmation string, e.g. `"OTP sent to ada@example.com"`.
+</ResponseField>
+
+```bash cURL
+curl --request POST \
+  --url https://api.agropulse.example.com/api/otp/request/ \
+  --header 'Authorization: Bearer <access_token>'
+```
+
+---
+
+## POST /api/otp/verify/
+
+Verify the OTP token that was sent to the user's email. Requires a valid Bearer token. On success, the user's session is marked as OTP-verified.
+
+### Request body
+
+<ParamField body="token" type="string" required>
+  The 6-character OTP code received by email.
+</ParamField>
+
+### Response — 200 OK
+
+<ResponseField name="message" type="string">
+  Confirmation: `"Login verification complete"`.
+</ResponseField>
+
+<ResponseField name="verified" type="boolean">
+  Whether the user is now OTP-verified on their current session.
+</ResponseField>
+
+<CodeGroup>
+
+```bash cURL
+curl --request POST \
+  --url https://api.agropulse.example.com/api/otp/verify/ \
+  --header 'Authorization: Bearer <access_token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "token": "482910"
+  }'
+```
+
+```json Response
+{
+  "message": "Login verification complete",
+  "verified": true
+}
+```
+
+</CodeGroup>

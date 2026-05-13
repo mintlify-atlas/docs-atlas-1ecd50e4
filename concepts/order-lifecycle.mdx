@@ -1,0 +1,131 @@
+---
+title: "Order lifecycle and status transitions"
+description: "An Agropulse order moves through six statuses—from PENDING to COMPLETED or CANCELLED—driven by payment, farmer processing, and delivery confirmation."
+---
+
+When a buyer places an order, it begins life in the `PENDING` state and advances through a series of statuses that reflect real-world progress: payment received, the farmer preparing the goods, a transporter collecting and moving them, and finally delivery confirmation. Each status change is triggered by a specific event—a payment webhook, a farmer action, or a delivery update.
+
+## Order statuses
+
+Orders move forward linearly under normal conditions. Cancellation can happen from `PENDING` or `PAID` before processing begins.
+
+```
+PENDING → PAID → PROCESSING → IN_TRANSIT → COMPLETED
+                     ↓
+                 CANCELLED
+```
+
+| Status | Meaning | Triggered by |
+|---|---|---|
+| `PENDING` | Order created, awaiting payment | Buyer submitting an order |
+| `PAID` | Payment confirmed | Successful payment webhook from Squad |
+| `PROCESSING` | Farmer has accepted and is preparing the order | Farmer marking the order ready |
+| `IN_TRANSIT` | A transporter has collected the goods | Transporter updating delivery status to `PICKED_UP` |
+| `COMPLETED` | Buyer has received the goods | Delivery marked `DELIVERED`; triggers escrow release |
+| `CANCELLED` | Order was cancelled | Buyer or farmer cancelling before processing |
+
+<Note>
+  Escrow funds are held throughout the `PAID` → `IN_TRANSIT` stages and released automatically when the order reaches `COMPLETED`. See [Payment flow, escrow, and splits](/concepts/payment-flow) for details.
+</Note>
+
+## Delivery types
+
+Every order specifies how the goods will reach the buyer.
+
+| Type | Meaning |
+|---|---|
+| `PICKUP` | The buyer collects directly from the farm. No transporter is assigned. |
+| `DELIVERY` | A transporter picks up from the farm and delivers to the buyer's address. |
+
+For `DELIVERY` orders, a `Delivery` record is created and linked to the order. A transporter is then assigned to that record and updates it as they progress through the job.
+
+## The Order model
+
+Each order links a buyer profile to a farmer profile and records the agreed total.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Auto-generated, read-only |
+| `buyer` | BuyerProfile | The buyer placing the order |
+| `farmer` | FarmerProfile | The farmer fulfilling the order |
+| `total` | decimal | Sum of all order item subtotals |
+| `order_status` | enum | Current lifecycle status; defaults to `PENDING` |
+| `delivery_type` | enum | `PICKUP` or `DELIVERY` |
+| `created_at` | datetime | Set on creation |
+| `updated_at` | datetime | Updated on every save |
+
+```json
+{
+  "id": "d4e5f6a7-...",
+  "buyer": "b2c3d4e5-...",
+  "farmer": "a1b2c3d4-...",
+  "total": "4500.00",
+  "order_status": "PROCESSING",
+  "delivery_type": "DELIVERY"
+}
+```
+
+## Order items
+
+An order contains one or more `OrderItem` records, each representing a line of produce. The `subtotal` is calculated automatically when an item is saved.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Auto-generated, read-only |
+| `order` | Order | The parent order |
+| `produce` | Produce | The produce listing being purchased |
+| `quantity` | integer | Number of units ordered |
+| `unit_price` | decimal | Price per unit at time of order |
+| `subtotal` | decimal | Auto-calculated as `quantity × unit_price` |
+
+<Tip>
+  `unit_price` is captured at order time, so it reflects the price when the buyer checked out—not the current listing price. This protects both parties if the farmer adjusts prices later.
+</Tip>
+
+```json
+{
+  "id": "e5f6a7b8-...",
+  "order": "d4e5f6a7-...",
+  "produce": "f6a7b8c9-...",
+  "quantity": 10,
+  "unit_price": "450.00",
+  "subtotal": "4500.00"
+}
+```
+
+## Status transition walkthrough
+
+<Steps>
+  <Step title="Buyer places an order (PENDING)">
+    The buyer selects produce, specifies a delivery type, and submits the order. The order is created with `order_status: PENDING` and a payment session is initiated.
+  </Step>
+  <Step title="Payment confirmed (PAID)">
+    Once the buyer completes payment, Squad sends a webhook. The API verifies the webhook signature and advances the order to `PAID`. An `EscrowAccount` is created to hold the funds.
+  </Step>
+  <Step title="Farmer prepares the order (PROCESSING)">
+    The farmer sees the paid order in their dashboard and marks it as ready. The status advances to `PROCESSING`. For `DELIVERY` orders, a `Delivery` record is created and a transporter can be assigned.
+  </Step>
+  <Step title="Transporter collects the goods (IN_TRANSIT)">
+    The transporter picks up the produce from the farm and updates the delivery status to `PICKED_UP`. The order status moves to `IN_TRANSIT`.
+  </Step>
+  <Step title="Buyer receives the order (COMPLETED)">
+    The transporter marks the delivery as `DELIVERED`. The order advances to `COMPLETED` and the escrow account releases funds, splitting the payment between the farmer, the rider, and the platform.
+  </Step>
+</Steps>
+
+## Related references
+
+<CardGroup cols={2}>
+  <Card title="Orders API" href="/api-reference/orders">
+    Create orders, list order items, and update statuses.
+  </Card>
+  <Card title="Delivery tracking API" href="/api-reference/delivery">
+    Assign transporters and update delivery progress.
+  </Card>
+  <Card title="Payment flow" href="/concepts/payment-flow">
+    How funds move from buyer to farmer and rider via escrow.
+  </Card>
+  <Card title="Payments API" href="/api-reference/payments">
+    Initiate payments and handle webhook verification.
+  </Card>
+</CardGroup>

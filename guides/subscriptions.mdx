@@ -1,0 +1,215 @@
+---
+title: "Set up recurring produce subscriptions"
+description: "Create recurring produce orders between buyers and farmers on Agropulse. Covers frequencies, pause/resume/cancel actions, auto-generated orders, and payments."
+---
+
+Subscriptions let a buyer commit to receiving a set quantity of a specific produce item from a specific farmer on a repeating schedule. Once a subscription is active, Agropulse generates `SubscriptionOrder` records automatically on each cycle without requiring the buyer to place a new order each time.
+
+## The subscription model
+
+A `Subscription` ties together four entities:
+
+- **Buyer** — the account placing the recurring order
+- **Farmer** — the producer supplying the item
+- **Produce** — the specific item being ordered
+- **Frequency** — how often the order recurs
+
+Each buyer–farmer–produce combination is unique; you cannot create two active subscriptions for the same triplet.
+
+### Frequency options
+
+| Value | Cycle |
+|---|---|
+| `DAILY` | Every day |
+| `WEEKLY` | Every 7 days |
+| `MONTHLY` | Every 30 days |
+
+### Subscription statuses
+
+| Status | `active` flag | Meaning |
+|---|---|---|
+| `ACTIVE` | `true` | Orders are being generated on schedule |
+| `PAUSED` | `false` | Generation is suspended; can be resumed |
+| `CANCELLED` | `false` | Permanently ended; `subscription_end_date` is set |
+
+## Creating a subscription
+
+<Steps>
+  <Step title="Identify the buyer, farmer, and produce IDs">
+    You need the UUIDs for the buyer profile, farmer profile, and produce item. Retrieve them from `/api/buyer-profiles/`, `/api/farmer-profiles/`, and `/api/produce/` respectively.
+  </Step>
+
+  <Step title="POST to /api/subscriptions/">
+    ```bash
+    curl -X POST https://api.agropulse.example.com/api/subscriptions/ \
+      -H "Authorization: Bearer <access_token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "buyer": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "farmer": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "produce": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+        "frequency": "WEEKLY",
+        "expected_quantity": 5,
+        "next_expected_order_date": "2024-05-20"
+      }'
+    ```
+
+    **Response:**
+
+    ```json
+    {
+      "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
+      "buyer": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "farmer": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "produce": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+      "frequency": "WEEKLY",
+      "expected_quantity": 5,
+      "next_expected_order_date": "2024-05-20",
+      "status": "ACTIVE",
+      "active": true,
+      "subscription_start_date": "2024-05-13",
+      "subscription_end_date": null,
+      "created_at": "2024-05-13T08:00:00Z"
+    }
+    ```
+
+    <Note>
+      The `next_expected_order_date` field drives the schedule. Agropulse advances this date by the frequency interval each time a `SubscriptionOrder` is generated.
+    </Note>
+  </Step>
+
+  <Step title="Retrieve your subscriptions">
+    ```bash
+    curl https://api.agropulse.example.com/api/subscriptions/my_subscriptions/ \
+      -H "Authorization: Bearer <access_token>"
+    ```
+
+    Filter by status or frequency using query parameters:
+
+    ```bash
+    # Only active subscriptions
+    curl "https://api.agropulse.example.com/api/subscriptions/?status=ACTIVE"
+
+    # Weekly subscriptions only
+    curl "https://api.agropulse.example.com/api/subscriptions/?frequency=WEEKLY"
+    ```
+  </Step>
+</Steps>
+
+## Managing a subscription's lifecycle
+
+### Pause
+
+Stops order generation without cancelling the subscription. The buyer can resume at any time.
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/subscriptions/<id>/pause/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Resume
+
+Reactivates a paused subscription. The next `SubscriptionOrder` will be generated on the next scheduled date.
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/subscriptions/<id>/resume/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Cancel
+
+Permanently ends the subscription. Sets `status` to `CANCELLED`, `active` to `false`, and records the `subscription_end_date`.
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/subscriptions/<id>/cancel/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+<Note>
+  Cancelled subscriptions cannot be resumed. If a buyer wants to restart deliveries, they must create a new subscription.
+</Note>
+
+## SubscriptionOrders
+
+`SubscriptionOrder` records are auto-generated for each subscription cycle. They are read-only from the API.
+
+### Order statuses
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Created; awaiting fulfilment |
+| `CONFIRMED` | Farmer has confirmed availability |
+| `DELIVERED` | Order has been delivered |
+| `FAILED` | Order could not be fulfilled this cycle |
+| `SKIPPED` | Cycle was skipped (e.g. subscription was paused) |
+
+List subscription orders for the authenticated user:
+
+```bash
+curl https://api.agropulse.example.com/api/subscription-orders/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+**Response:**
+
+```json
+[
+  {
+    "id": "e5f6a7b8-c9d0-1234-efab-345678901234",
+    "subscription": "d4e5f6a7-b8c9-0123-defa-234567890123",
+    "quantity": 5,
+    "unit_price": "800.00",
+    "total_amount": "4000.00",
+    "order_status": "PENDING",
+    "scheduled_date": "2024-05-20",
+    "created_at": "2024-05-13T08:00:00Z"
+  }
+]
+```
+
+Retrieve orders due today or earlier (useful for fulfilment workflows):
+
+```bash
+curl https://api.agropulse.example.com/api/subscription-orders/due_orders/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Filter by status:
+
+```bash
+curl "https://api.agropulse.example.com/api/subscription-orders/?order_status=PENDING"
+```
+
+## SubscriptionPayments
+
+Each `SubscriptionOrder` has a corresponding `SubscriptionPayment` that tracks the charge for that cycle.
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Payment not yet collected |
+| `COMPLETED` | Payment collected successfully |
+| `FAILED` | Payment attempt failed |
+| `REFUNDED` | Payment was reversed |
+
+List subscription payments:
+
+```bash
+curl https://api.agropulse.example.com/api/subscription-payments/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+List only pending payments:
+
+```bash
+curl https://api.agropulse.example.com/api/subscription-payments/pending_payments/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+<CardGroup cols={2}>
+  <Card title="Subscriptions API reference" href="/api-reference/subscriptions">
+    Full endpoint reference for subscriptions, subscription orders, and payments.
+  </Card>
+  <Card title="Order lifecycle" href="/concepts/order-lifecycle">
+    Understand how subscription orders relate to the core order model.
+  </Card>
+</CardGroup>

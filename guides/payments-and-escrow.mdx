@@ -1,0 +1,209 @@
+---
+title: "Process payments and manage escrow funds"
+description: "Learn how Squad payment initiation, webhook verification, escrow creation, payment splits, and payouts work together in the Agropulse platform."
+---
+
+Agropulse processes all payments through the Squad payment gateway. When a buyer pays for an order, the funds are held in escrow until the delivery is confirmed. At that point the payment is split between the farmer, the rider, and the platform, and a payout record is created for each recipient.
+
+## Payment channels
+
+Squad supports the following payment channels. Pass any combination as the `payment_channels` array when initiating a payment:
+
+| Channel | Value |
+|---|---|
+| Card | `CARD` |
+| USSD | `USSD` |
+| Bank transfer | `TRANSFER` |
+| Virtual account | `VIRTUAL-ACCOUNT` |
+
+## End-to-end payment flow
+
+<Steps>
+  <Step title="Initiate a payment">
+    The buyer calls the initialize payment endpoint with an `order_id`. Agropulse creates a `Payment` record and calls the Squad `/transaction/initiate` API.
+
+    ```bash
+    curl -X POST https://api.agropulse.example.com/api/payments/initialize_payment/ \
+      -H "Authorization: Bearer <access_token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "order_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      }'
+    ```
+
+    **Response:**
+
+    ```json
+    {
+      "payment_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "squad_transaction_id": "AGROPULSE_ref_20240513_001",
+      "checkout_url": "https://sandbox-pay.squadco.com/AGROPULSE_ref_20240513_001",
+      "amount": "15000.00"
+    }
+    ```
+
+    Redirect or present the `checkout_url` to the buyer. Squad's hosted checkout page handles card entry, USSD prompts, and transfer instructions — no payment UI is required on your end.
+  </Step>
+
+  <Step title="Squad posts a webhook">
+    After the buyer completes payment on the Squad checkout page, Squad sends a `POST` request to your webhook endpoint with the transaction result. Agropulse listens at:
+
+    ```
+    POST /api/payments/webhook_callback/
+    ```
+
+    Squad signs each webhook with an HMAC-SHA-512 signature in the `x-squad-signature` request header. Agropulse automatically verifies this signature before processing the event.
+
+    <Note>
+      The `webhook_recieved` field on the `Payment` model is set to `true` when the webhook arrives. The `webhook_verified` field is set to `true` only after the HMAC signature check passes. A payment with `webhook_verified: false` should not be treated as confirmed.
+    </Note>
+
+    Example webhook payload from Squad:
+
+    ```json
+    {
+      "transaction_reference": "AGROPULSE_ref_20240513_001",
+      "status": "success",
+      "payment_method": "card",
+      "amount": 1500000
+    }
+    ```
+  </Step>
+
+  <Step title="Escrow is created automatically">
+    When a payment transitions to `SUCCESS` (either via webhook or via the manual verify endpoint), Agropulse automatically creates an `EscrowAccount` record that holds the full payment amount on behalf of the farmer.
+
+    <Note>
+      Escrow is enabled by default (`escrow_enabled: true`) on every payment. Funds remain in the `HELD` state until the delivery is marked `DELIVERED`. This protects the buyer — the farmer cannot receive funds until the order is fulfilled.
+    </Note>
+
+    Retrieve escrow accounts for the authenticated farmer:
+
+    ```bash
+    curl https://api.agropulse.example.com/api/escrow/ \
+      -H "Authorization: Bearer <access_token>"
+    ```
+
+    **Response:**
+
+    ```json
+    [
+      {
+        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "payment": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "farmer": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+        "amount_held": "15000.00",
+        "release_status": "HELD",
+        "released_at": null,
+        "created_at": "2024-05-13T10:30:00Z"
+      }
+    ]
+    ```
+
+    Escrow `release_status` values:
+
+    | Status | Meaning |
+    |---|---|
+    | `HELD` | Funds are locked pending delivery confirmation |
+    | `RELEASED` | Delivery confirmed; payout has been queued |
+    | `DISPUTED` | A dispute is under review by the operations team |
+  </Step>
+
+  <Step title="Payment is split">
+    Alongside escrow creation, Agropulse calculates a `PaymentSplit` that divides the payment total into three portions:
+
+    | Recipient | Share | Example (₦15,000) |
+    |---|---|---|
+    | Farmer | 80% | ₦12,000 |
+    | Rider | 10% | ₦1,500 |
+    | Platform | 10% | ₦1,500 |
+
+    The split is stored on the `PaymentSplit` model and is read-only from the API. `farmer_processed` and `rider_processed` are set to `true` once the corresponding payout completes.
+  </Step>
+
+  <Step title="Escrow is released after delivery">
+    Once the rider marks the delivery as `DELIVERED`, an admin (or an automated process) calls the release endpoint on the escrow record:
+
+    ```bash
+    curl -X POST https://api.agropulse.example.com/api/escrow/<escrow_id>/release_funds/ \
+      -H "Authorization: Bearer <admin_access_token>"
+    ```
+
+    This sets `release_status` to `RELEASED` and automatically creates a `Payout` record for the farmer's 80% share.
+  </Step>
+
+  <Step title="Payouts are processed">
+    List pending payouts:
+
+    ```bash
+    curl https://api.agropulse.example.com/api/payouts/ \
+      -H "Authorization: Bearer <access_token>"
+    ```
+
+    **Response:**
+
+    ```json
+    [
+      {
+        "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
+        "payment": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        "payout_type": "FARMER",
+        "amount": "12000.00",
+        "payout_status": "PENDING",
+        "bank_reference": null,
+        "completed_at": null
+      }
+    ]
+    ```
+
+    Payout status values:
+
+    | Status | Meaning |
+    |---|---|
+    | `PENDING` | Awaiting processing |
+    | `PROCESSING` | Batch process has picked it up |
+    | `COMPLETED` | Bank transfer confirmed |
+    | `FAILED` | Transfer failed; will be retried |
+
+    Staff can trigger batch processing for all pending farmer or rider payouts:
+
+    ```bash
+    # Process all pending farmer payouts
+    curl -X POST https://api.agropulse.example.com/api/payouts/process_farmer_payouts/ \
+      -H "Authorization: Bearer <admin_access_token>"
+
+    # Process all pending rider payouts
+    curl -X POST https://api.agropulse.example.com/api/payouts/process_rider_payouts/ \
+      -H "Authorization: Bearer <admin_access_token>"
+    ```
+  </Step>
+</Steps>
+
+## Manual payment verification
+
+If a webhook is not received (for example, during local development), you can manually trigger verification against Squad:
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/payments/<payment_id>/verify_payment/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+This calls Squad's `/transaction/verify/<ref>` endpoint and, if the transaction is confirmed, sets the payment to `SUCCESS` and creates the escrow and split records.
+
+## Payment status reference
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Payment record created; buyer has not completed checkout |
+| `SUCCESS` | Payment confirmed by Squad (webhook or manual verify) |
+| `FAILED` | Payment failed or was rejected at checkout |
+| `REFUNDED` | Payment has been reversed |
+
+<CardGroup cols={2}>
+  <Card title="Escrow API reference" href="/api-reference/escrow">
+    Full endpoint reference for escrow accounts.
+  </Card>
+  <Card title="Payouts API reference" href="/api-reference/payouts">
+    Full endpoint reference for farmer and rider payouts.
+  </Card>
+</CardGroup>

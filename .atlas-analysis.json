@@ -1,0 +1,117 @@
+{
+  "projectType": "api-service",
+  "projectName": "Agropulse API",
+  "projectDescription": "An AI-powered agricultural commerce REST API for farmers, buyers, and riders, covering user management, produce catalog, orders, delivery tracking, payments via Squad, and recurring subscriptions.",
+  "theme": "luma",
+  "primaryColor": "#2D7A3A",
+  "lightColor": "#E8F5E9",
+  "darkColor": "#1B5E20",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "authentication"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/roles-and-profiles",
+              "concepts/order-lifecycle",
+              "concepts/payment-flow"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/environment-setup",
+              "guides/payments-and-escrow",
+              "guides/subscriptions",
+              "guides/delivery-tracking"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Users & Profiles",
+            "pages": [
+              "api-reference/users",
+              "api-reference/farmer-profiles",
+              "api-reference/buyer-profiles",
+              "api-reference/transporter-profiles"
+            ]
+          },
+          {
+            "group": "Produce & Orders",
+            "pages": [
+              "api-reference/produce",
+              "api-reference/orders"
+            ]
+          },
+          {
+            "group": "Payments",
+            "pages": [
+              "api-reference/payments",
+              "api-reference/escrow",
+              "api-reference/payouts",
+              "api-reference/virtual-accounts"
+            ]
+          },
+          {
+            "group": "Delivery & Subscriptions",
+            "pages": [
+              "api-reference/delivery",
+              "api-reference/subscriptions"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "JWT authentication with OTP email verification",
+    "Role-based access control for buyers, farmers, and transporters",
+    "Produce catalog management with filtering, search, and availability tracking",
+    "Order management with status lifecycle (Pending → Paid → In Transit → Completed)",
+    "Squad payment gateway integration with escrow, payment splits, and payouts",
+    "Virtual accounts for farmers and transporters",
+    "Recurring subscriptions (daily/weekly/monthly) with pause, resume, and cancel",
+    "Delivery tracking with rider earnings management",
+    "OpenAPI schema available via drf-spectacular"
+  ],
+  "publicApiSurface": [
+    "POST /api/users/register/",
+    "POST /api/users/login/",
+    "GET /api/users/me/",
+    "POST /api/token/",
+    "POST /api/token/refresh/",
+    "GET/POST /api/farmers/",
+    "GET/POST /api/buyers/",
+    "GET/POST /api/transporters/",
+    "GET/POST /api/produces/",
+    "GET/POST /api/orders/",
+    "GET/POST /api/order-items/",
+    "GET/POST /api/deliveries/",
+    "GET/POST /api/rider-earnings/",
+    "GET/POST /api/payments/",
+    "GET/POST /api/escrow/",
+    "GET/POST /api/payment-splits/",
+    "GET/POST /api/payouts/",
+    "GET/POST /api/virtual-accounts/",
+    "GET/POST /api/virtual-account-transactions/",
+    "GET/POST /api/subscriptions/",
+    "GET/POST /api/subscription-orders/",
+    "GET/POST /api/subscription-payments/",
+    "GET /api/schema/",
+    "GET /api/schema/swagger-ui/"
+  ]
+}

@@ -1,81 +1,158 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
-icon: 'rocket'
+title: "Get started with Agropulse API"
+description: "Go from zero to your first authenticated API call in minutes — install dependencies, run migrations, start the server, and register a user."
 ---
 
-## Get started in three steps
+Agropulse is a Django REST Framework API. This guide walks you through setting up a local development environment, registering a user, and obtaining a JWT token so you can start making authenticated requests.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
+  <Step title="Install dependencies">
+    Agropulse uses [Poetry](https://python-poetry.org/) for dependency management. Make sure you have Python 3.12+ and Poetry installed, then run:
 
-### Step 1: Set up your local environment
+    ```bash
+    poetry install
+    ```
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    This installs Django, Django REST Framework, SimpleJWT, django-otp, and all other required packages.
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Configure environment variables">
+    Create a `.env` file in the project root (or export variables into your shell). At minimum you need database credentials and a Django secret key:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    DJANGO_SECRET_KEY=your-django-secret-key
+    DEBUG=True
+    ALLOWED_HOSTS=localhost,127.0.0.1
+    DB_NAME=agropulse
+    DB_USER=postgres
+    DB_PASSWORD=your-db-password
+    DB_HOST=localhost
+    ```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    Payments and email OTP require additional Squad and email variables. See the [environment setup guide](/guides/environment-setup) for the full list.
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Run database migrations">
+    Apply all migrations to create the database schema:
 
-### Step 3: Go live
+    ```bash
+    poetry run python -m core_agropulse.manage migrate
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    Optionally create a superuser for Django admin access:
+
+    ```bash
+    poetry run python -m core_agropulse.manage createsuperuser
+    ```
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    poetry run python -m core_agropulse.manage runserver
+    ```
+
+    The API is now available at `http://localhost:8000`. The interactive Swagger UI is at `http://localhost:8000/api/schema/swagger-ui/`.
+  </Step>
+
+  <Step title="Register a user">
+    Create a new user by posting to `POST /api/users/register/`. You must choose a `role` of `BUYER`, `SELLER`, or `TRANSPORTER`.
+
+    ```bash
+    curl -X POST http://localhost:8000/api/users/register/ \
+      -H "Content-Type: application/json" \
+      -d '{
+        "full_name": "Ada Okafor",
+        "email": "ada@example.com",
+        "phone_number": "+2348012345678",
+        "role": "BUYER",
+        "password": "strongpassword123",
+        "password_confirm": "strongpassword123"
+      }'
+    ```
+
+    A successful response returns `201 Created` with the new user object:
+
+    ```json
+    {
+      "id": "3f7e1b2a-...",
+      "full_name": "Ada Okafor",
+      "email": "ada@example.com",
+      "phone_number": "+2348012345678",
+      "role": "BUYER",
+      "is_active": true,
+      "farmer_profile": null,
+      "buyer_profile": null,
+      "transporter_profile": null,
+      "created_at": "2026-05-13T10:00:00Z",
+      "updated_at": "2026-05-13T10:00:00Z"
+    }
+    ```
+  </Step>
+
+  <Step title="Log in and get your JWT token">
+    Exchange your credentials for a JWT access token and refresh token:
+
+    ```bash
+    curl -X POST http://localhost:8000/api/users/login/ \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "ada@example.com",
+        "password": "strongpassword123"
+      }'
+    ```
+
+    The response includes both tokens and the full user object:
+
+    ```json
+    {
+      "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "user": {
+        "id": "3f7e1b2a-...",
+        "full_name": "Ada Okafor",
+        "email": "ada@example.com",
+        "phone_number": "+2348012345678",
+        "role": "BUYER",
+        "is_active": true,
+        "farmer_profile": null,
+        "buyer_profile": null,
+        "transporter_profile": null,
+        "created_at": "2026-05-13T10:00:00Z",
+        "updated_at": "2026-05-13T10:00:00Z"
+      }
+    }
+    ```
+
+    Save the `access` token — you'll pass it as a `Bearer` token in the `Authorization` header for every subsequent request.
+  </Step>
+
+  <Step title="Make an authenticated request">
+    Use your access token to fetch your own profile:
+
+    ```bash
+    curl http://localhost:8000/api/users/me/ \
+      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  Access tokens are short-lived. When one expires, use `POST /api/token/refresh/` with your `refresh` token to obtain a new access token without re-entering credentials. See the [authentication guide](/authentication) for details.
+</Note>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Authentication" icon="key" href="/authentication">
+    Understand token lifetimes, refresh flow, and OTP verification
+  </Card>
+  <Card title="Roles and profiles" icon="users" href="/concepts/roles-and-profiles">
+    Create a farmer, buyer, or transporter profile after registration
+  </Card>
+  <Card title="Produce catalog" icon="seedling" href="/api-reference/produce">
+    Browse and list produce with category filtering and availability
+  </Card>
+  <Card title="Orders" icon="basket-shopping" href="/api-reference/orders">
+    Place orders and follow them through the full lifecycle
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

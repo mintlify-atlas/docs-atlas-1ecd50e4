@@ -1,0 +1,538 @@
+---
+title: "Delivery API — assign riders and track shipments"
+description: "Endpoints for creating and managing deliveries, assigning transporters to orders, tracking shipment status through each stage, and viewing rider earnings."
+---
+
+The Delivery API lets you record and track the physical movement of orders from farm to buyer. Each delivery is linked to a single order with `delivery_type` set to `DELIVERY`. When a delivery reaches `DELIVERED` status, the system automatically creates a `RiderEarnings` record for 10% of the order total and marks the order as `COMPLETED`.
+
+## Status flow
+
+Deliveries move through four sequential states:
+
+```
+PENDING → PICKED_UP → IN_TRANSIT → DELIVERED
+```
+
+- **PENDING** — delivery created, awaiting rider pickup.
+- **PICKED_UP** — rider has collected the order; `picked_up_at` is recorded.
+- **IN_TRANSIT** — order is en route to the buyer.
+- **DELIVERED** — order reached the buyer; `delivered_at` is recorded and earnings are generated.
+
+<Note>
+  Riders can handle at most 5 concurrent deliveries in PENDING, PICKED_UP, or IN_TRANSIT status. Assigning a sixth delivery returns a 400 error.
+</Note>
+
+## Access control
+
+The `delivery_status` and `transporter` query parameters are available for filtering. Results are automatically scoped by role:
+
+- **Admin** — all deliveries.
+- **Transporter** — only deliveries assigned to them.
+- **Buyer** — deliveries for their own orders.
+- **Farmer** — deliveries for orders tied to their produce.
+
+---
+
+## Deliveries
+
+### List deliveries
+
+<ParamField path="GET /api/deliveries/" type="string">
+  Returns a paginated list of deliveries visible to the authenticated user.
+</ParamField>
+
+**Query parameters**
+
+<ParamField query="delivery_status" type="string">
+  Filter by status. One of `PENDING`, `PICKED_UP`, `IN_TRANSIT`, `DELIVERED`.
+</ParamField>
+
+<ParamField query="transporter" type="string">
+  Filter by transporter UUID.
+</ParamField>
+
+<ParamField query="search" type="string">
+  Search by `delivery_address` or buyer business name.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort results. Use `created_at` or `delivered_at`, prefix with `-` for descending. Defaults to `-created_at`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List all deliveries
+curl --request GET \
+  --url https://api.agropulse.example.com/api/deliveries/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter by status
+curl --request GET \
+  --url 'https://api.agropulse.example.com/api/deliveries/?delivery_status=IN_TRANSIT' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+**Response fields**
+
+<ResponseField name="id" type="string" required>
+  UUID of the delivery record.
+</ResponseField>
+
+<ResponseField name="order" type="string" required>
+  UUID of the linked order.
+</ResponseField>
+
+<ResponseField name="transporter" type="string">
+  UUID of the assigned transporter profile. `null` if unassigned.
+</ResponseField>
+
+<ResponseField name="transporter_name" type="string">
+  Full name of the assigned transporter. Read-only.
+</ResponseField>
+
+<ResponseField name="transporter_vehicle" type="string">
+  Vehicle type of the assigned transporter. Read-only.
+</ResponseField>
+
+<ResponseField name="delivery_status" type="string" required>
+  Current status. One of `PENDING`, `PICKED_UP`, `IN_TRANSIT`, `DELIVERED`.
+</ResponseField>
+
+<ResponseField name="delivery_address" type="string" required>
+  Full delivery address text.
+</ResponseField>
+
+<ResponseField name="buyer_name" type="string">
+  Full name of the buyer. Read-only.
+</ResponseField>
+
+<ResponseField name="farmer_name" type="string">
+  Full name of the farmer. Read-only.
+</ResponseField>
+
+<ResponseField name="order_total" type="string">
+  Order total in decimal string format. Read-only.
+</ResponseField>
+
+<ResponseField name="picked_up_at" type="string">
+  ISO 8601 datetime when the rider confirmed pickup. `null` until pickup.
+</ResponseField>
+
+<ResponseField name="delivered_at" type="string">
+  ISO 8601 datetime when delivery was confirmed. `null` until delivered. Read-only.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 datetime the record was created. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 datetime of the last update. Read-only.
+</ResponseField>
+
+---
+
+### Create a delivery
+
+<ParamField path="POST /api/deliveries/" type="string">
+  Creates a new delivery record for an order. The order must have `delivery_type` set to `DELIVERY`.
+</ParamField>
+
+<Warning>
+  Each order supports only one delivery record (one-to-one relationship). Creating a delivery for an order that already has one will fail.
+</Warning>
+
+**Request body**
+
+<ParamField body="order" type="string" required>
+  UUID of the order to fulfil. Must have `delivery_type` of `DELIVERY`.
+</ParamField>
+
+<ParamField body="transporter" type="string" required>
+  UUID of the transporter profile to assign.
+</ParamField>
+
+<ParamField body="delivery_address" type="string" required>
+  Full delivery address for the shipment.
+</ParamField>
+
+<CodeGroup>
+
+```bash Create delivery
+curl --request POST \
+  --url https://api.agropulse.example.com/api/deliveries/ \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "order": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+    "transporter": "a3bb189e-8bf9-3888-9912-ace4e6543002",
+    "delivery_address": "12 Market Road, Lagos, Nigeria"
+  }'
+```
+
+```json 201 Response
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "order": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "transporter": "a3bb189e-8bf9-3888-9912-ace4e6543002",
+  "transporter_name": "Chidi Okonkwo",
+  "transporter_vehicle": "Motorcycle",
+  "delivery_status": "PENDING",
+  "delivery_address": "12 Market Road, Lagos, Nigeria",
+  "buyer_name": "Amara Foods Ltd",
+  "farmer_name": "Emeka Farms",
+  "order_total": "15000.00",
+  "picked_up_at": null,
+  "delivered_at": null,
+  "created_at": "2024-11-01T09:00:00Z",
+  "updated_at": "2024-11-01T09:00:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+### Get delivery detail
+
+<ParamField path="GET /api/deliveries/{id}/" type="string">
+  Returns full detail for a single delivery, including nested transporter and order objects.
+</ParamField>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the delivery.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get delivery
+curl --request GET \
+  --url https://api.agropulse.example.com/api/deliveries/f47ac10b-58cc-4372-a567-0e02b2c3d479/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json 200 Response
+{
+  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "order": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+  "order_details": {
+    "id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+    "buyer_name": "Amara Foods Ltd",
+    "farmer_name": "Emeka Farms",
+    "total": "15000.00",
+    "order_status": "PROCESSING",
+    "delivery_type": "DELIVERY"
+  },
+  "transporter": "a3bb189e-8bf9-3888-9912-ace4e6543002",
+  "transporter_details": {
+    "id": "a3bb189e-8bf9-3888-9912-ace4e6543002",
+    "name": "Chidi Okonkwo",
+    "email": "chidi@example.com",
+    "phone": "+2348012345678",
+    "vehicle_type": "Motorcycle",
+    "plate_number": "LGS-123-AB",
+    "service_area": "Lagos"
+  },
+  "delivery_status": "PENDING",
+  "delivery_address": "12 Market Road, Lagos, Nigeria",
+  "picked_up_at": null,
+  "delivered_at": null,
+  "created_at": "2024-11-01T09:00:00Z",
+  "updated_at": "2024-11-01T09:00:00Z"
+}
+```
+
+</CodeGroup>
+
+**Additional response fields (detail view only)**
+
+<ResponseField name="order_details" type="object">
+  Nested order summary.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the order.</ResponseField>
+    <ResponseField name="buyer_name" type="string">Full name of the buyer.</ResponseField>
+    <ResponseField name="farmer_name" type="string">Full name of the farmer.</ResponseField>
+    <ResponseField name="total" type="string">Order total as a decimal string.</ResponseField>
+    <ResponseField name="order_status" type="string">Current order status.</ResponseField>
+    <ResponseField name="delivery_type" type="string">Delivery method. Always `DELIVERY` for this resource.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="transporter_details" type="object">
+  Nested transporter profile. `null` if no rider is assigned.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the transporter profile.</ResponseField>
+    <ResponseField name="name" type="string">Full name.</ResponseField>
+    <ResponseField name="email" type="string">Email address.</ResponseField>
+    <ResponseField name="phone" type="string">Phone number.</ResponseField>
+    <ResponseField name="vehicle_type" type="string">Type of vehicle.</ResponseField>
+    <ResponseField name="plate_number" type="string">Vehicle plate number.</ResponseField>
+    <ResponseField name="service_area" type="string">Geographic area the rider covers.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Update delivery status
+
+<ParamField path="PATCH /api/deliveries/{id}/" type="string">
+  Partially updates a delivery record. Typically used to update `delivery_status` or `delivery_address`.
+</ParamField>
+
+<Tip>
+  Prefer the dedicated action endpoints — `pickup_confirmation`, `start_transit`, and `delivery_confirmation` — over a raw PATCH when advancing the status. They enforce state-machine rules and set timestamps automatically.
+</Tip>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the delivery.
+</ParamField>
+
+**Request body (all fields optional)**
+
+<ParamField body="delivery_status" type="string">
+  New status value. One of `PENDING`, `PICKED_UP`, `IN_TRANSIT`, `DELIVERED`.
+</ParamField>
+
+<ParamField body="delivery_address" type="string">
+  Updated delivery address.
+</ParamField>
+
+<ParamField body="transporter" type="string">
+  UUID of a replacement transporter.
+</ParamField>
+
+<ParamField body="picked_up_at" type="string">
+  ISO 8601 datetime of pickup.
+</ParamField>
+
+<CodeGroup>
+
+```bash Update status
+curl --request PATCH \
+  --url https://api.agropulse.example.com/api/deliveries/f47ac10b-58cc-4372-a567-0e02b2c3d479/ \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{"delivery_status": "PICKED_UP"}'
+```
+
+</CodeGroup>
+
+---
+
+### Delete delivery
+
+<ParamField path="DELETE /api/deliveries/{id}/" type="string">
+  Permanently removes a delivery record.
+</ParamField>
+
+<Warning>
+  Deleting a delivery does not reverse order status changes or remove associated `RiderEarnings` records. Use with care.
+</Warning>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the delivery.
+</ParamField>
+
+```bash
+curl --request DELETE \
+  --url https://api.agropulse.example.com/api/deliveries/f47ac10b-58cc-4372-a567-0e02b2c3d479/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+Returns `204 No Content` on success.
+
+---
+
+## Rider earnings
+
+Earnings records are created automatically when a delivery reaches `DELIVERED` status. The amount equals 10% of the linked order total. The `RiderEarningsViewSet` is read-only; use the `mark_as_paid` action to update payment status.
+
+### List rider earnings
+
+<ParamField path="GET /api/rider-earnings/" type="string">
+  Returns a list of earnings records visible to the authenticated user.
+</ParamField>
+
+**Query parameters**
+
+<ParamField query="payment_status" type="string">
+  Filter by status. One of `PENDING`, `PAID`, `CANCELLED`.
+</ParamField>
+
+<ParamField query="transporter" type="string">
+  Filter by transporter UUID.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort by `earnings_amount` or `created_at`. Prefix with `-` for descending.
+</ParamField>
+
+<CodeGroup>
+
+```bash List earnings
+curl --request GET \
+  --url https://api.agropulse.example.com/api/rider-earnings/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter pending payments
+curl --request GET \
+  --url 'https://api.agropulse.example.com/api/rider-earnings/?payment_status=PENDING' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+**Response fields**
+
+<ResponseField name="id" type="string" required>
+  UUID of the earnings record.
+</ResponseField>
+
+<ResponseField name="transporter" type="string" required>
+  UUID of the transporter profile.
+</ResponseField>
+
+<ResponseField name="transporter_name" type="string">
+  Full name of the transporter. Read-only.
+</ResponseField>
+
+<ResponseField name="delivery" type="string" required>
+  UUID of the linked delivery record.
+</ResponseField>
+
+<ResponseField name="delivery_order_id" type="string">
+  UUID of the order associated with the delivery. Read-only.
+</ResponseField>
+
+<ResponseField name="delivery_address" type="string">
+  Delivery address from the linked delivery. Read-only.
+</ResponseField>
+
+<ResponseField name="earnings_amount" type="string" required>
+  Decimal amount earned for this delivery (10% of order total).
+</ResponseField>
+
+<ResponseField name="payment_status" type="string" required>
+  One of `PENDING`, `PAID`, `CANCELLED`.
+</ResponseField>
+
+<ResponseField name="paid_at" type="string">
+  ISO 8601 datetime when payment was processed. `null` until paid.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 datetime the record was created. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 datetime of the last update. Read-only.
+</ResponseField>
+
+---
+
+### Get rider earning detail
+
+<ParamField path="GET /api/rider-earnings/{id}/" type="string">
+  Returns full detail for a single earnings record, including nested transporter and delivery objects.
+</ParamField>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the earnings record.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get earning
+curl --request GET \
+  --url https://api.agropulse.example.com/api/rider-earnings/c9a1d6e2-3f7b-4c8a-b5d0-9e2f1a3b4c5d/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json 200 Response
+{
+  "id": "c9a1d6e2-3f7b-4c8a-b5d0-9e2f1a3b4c5d",
+  "transporter": "a3bb189e-8bf9-3888-9912-ace4e6543002",
+  "transporter_details": {
+    "id": "a3bb189e-8bf9-3888-9912-ace4e6543002",
+    "name": "Chidi Okonkwo",
+    "email": "chidi@example.com",
+    "phone": "+2348012345678",
+    "vehicle_type": "Motorcycle"
+  },
+  "delivery": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "delivery_details": {
+    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "order_id": "d290f1ee-6c54-4b01-90e6-d701748f0851",
+    "delivery_address": "12 Market Road, Lagos, Nigeria",
+    "delivery_status": "DELIVERED",
+    "delivered_at": "2024-11-01T14:30:00Z"
+  },
+  "earnings_amount": "1500.00",
+  "payment_status": "PENDING",
+  "paid_at": null,
+  "created_at": "2024-11-01T14:30:05Z",
+  "updated_at": "2024-11-01T14:30:05Z"
+}
+```
+
+</CodeGroup>
+
+**Additional response fields (detail view only)**
+
+<ResponseField name="transporter_details" type="object">
+  Nested transporter summary.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the transporter profile.</ResponseField>
+    <ResponseField name="name" type="string">Full name.</ResponseField>
+    <ResponseField name="email" type="string">Email address.</ResponseField>
+    <ResponseField name="phone" type="string">Phone number.</ResponseField>
+    <ResponseField name="vehicle_type" type="string">Type of vehicle.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="delivery_details" type="object">
+  Nested delivery summary.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the delivery.</ResponseField>
+    <ResponseField name="order_id" type="string">UUID of the linked order.</ResponseField>
+    <ResponseField name="delivery_address" type="string">Delivery address.</ResponseField>
+    <ResponseField name="delivery_status" type="string">Final delivery status.</ResponseField>
+    <ResponseField name="delivered_at" type="string">ISO 8601 datetime of delivery completion.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+### Mark earning as paid
+
+<ParamField path="POST /api/rider-earnings/{id}/mark_as_paid/" type="string">
+  Marks an earnings record as paid and records the `paid_at` timestamp. Returns a 400 error if the payment has already been processed.
+</ParamField>
+
+<Note>
+  The `RiderEarningsViewSet` is read-only — it does not expose PATCH or DELETE endpoints. Use this action endpoint to update payment status instead of a raw PATCH.
+</Note>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the earnings record.
+</ParamField>
+
+```bash Mark as paid
+curl --request POST \
+  --url https://api.agropulse.example.com/api/rider-earnings/c9a1d6e2-3f7b-4c8a-b5d0-9e2f1a3b4c5d/mark_as_paid/ \
+  --header 'Authorization: Bearer <token>'
+```

@@ -1,0 +1,341 @@
+---
+title: "Produce API — catalog and inventory endpoints"
+description: "Browse Agropulse produce listings with category and availability filters. Authenticated farmers can create, update stock, and delete their own produce listings."
+---
+
+The Produce API lets you browse and manage agricultural produce listings in the Agropulse marketplace. Listing and retrieval endpoints are public. Creating, updating, and deleting listings requires authentication and a valid farmer profile.
+
+<Note>
+  The `farmer` field is set automatically from the authenticated user's farmer profile on create. You cannot set it manually in a POST request.
+</Note>
+
+---
+
+## List produce
+
+<code>GET /api/produces/</code>
+
+Returns a paginated list of all produce listings. You can filter, search, and sort results using query parameters.
+
+### Query parameters
+
+<ParamField query="category" type="string">
+  Filter by produce category. One of `VEGETABLES`, `FRUITS`, `GRAINS`, `DAIRY`, `MEAT`, `OTHER`.
+</ParamField>
+
+<ParamField query="availability_status" type="string">
+  Filter by availability. One of `AVAILABLE`, `LOW_STOCK`, `SOLD_OUT`.
+</ParamField>
+
+<ParamField query="farmer" type="string">
+  Filter by farmer UUID. Returns all produce belonging to the specified farmer profile.
+</ParamField>
+
+<ParamField query="search" type="string">
+  Search by produce name or farm name (partial match).
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort results. Accepted values: `unit_price`, `-unit_price`, `created_at`, `-created_at`, `harvest_date`, `-harvest_date`. Defaults to `-created_at`.
+</ParamField>
+
+### Response fields
+
+<ResponseField name="id" type="string" required>
+  UUID of the produce listing.
+</ResponseField>
+
+<ResponseField name="farmer" type="string" required>
+  UUID of the farmer profile that owns this listing.
+</ResponseField>
+
+<ResponseField name="farmer_farm_name" type="string">
+  Display name of the farm. Read-only.
+</ResponseField>
+
+<ResponseField name="farmer_user_full_name" type="string">
+  Full name of the farmer. Read-only.
+</ResponseField>
+
+<ResponseField name="produce_name" type="string" required>
+  Name of the produce item.
+</ResponseField>
+
+<ResponseField name="category" type="string" required>
+  Category of the produce. One of `VEGETABLES`, `FRUITS`, `GRAINS`, `DAIRY`, `MEAT`, `OTHER`.
+</ResponseField>
+
+<ResponseField name="unit_price" type="string" required>
+  Price per unit as a decimal string (e.g. `"12.50"`).
+</ResponseField>
+
+<ResponseField name="quantity_available" type="integer" required>
+  Number of units currently in stock.
+</ResponseField>
+
+<ResponseField name="harvest_date" type="string" required>
+  ISO 8601 date of harvest (e.g. `"2025-04-20"`).
+</ResponseField>
+
+<ResponseField name="availability_status" type="string" required>
+  Current availability. One of `AVAILABLE`, `LOW_STOCK`, `SOLD_OUT`. Defaults to `AVAILABLE`.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 datetime when the listing was created. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 datetime of the last update. Read-only.
+</ResponseField>
+
+<CodeGroup>
+
+```bash List all produce
+curl --request GET \
+  --url https://api.agropulse.com/api/produces/
+```
+
+```bash Filter by category and status
+curl --request GET \
+  --url "https://api.agropulse.com/api/produces/?category=VEGETABLES&availability_status=AVAILABLE"
+```
+
+```bash Filter by farmer
+curl --request GET \
+  --url "https://api.agropulse.com/api/produces/?farmer=3fa85f64-5717-4562-b3fc-2c963f66afa6"
+```
+
+</CodeGroup>
+
+---
+
+## Create produce
+
+<code>POST /api/produces/</code>
+
+Creates a new produce listing. Requires authentication. The authenticated user must have a farmer profile — the `farmer` field is set automatically.
+
+<Warning>
+  Users without a farmer profile will receive a `400 Bad Request` error.
+</Warning>
+
+### Request body
+
+<ParamField body="produce_name" type="string" required>
+  Name of the produce item, up to 255 characters.
+</ParamField>
+
+<ParamField body="category" type="string" required>
+  Category of the produce. One of `VEGETABLES`, `FRUITS`, `GRAINS`, `DAIRY`, `MEAT`, `OTHER`.
+</ParamField>
+
+<ParamField body="unit_price" type="string" required>
+  Price per unit as a decimal (e.g. `"12.50"`). Up to 10 digits, 2 decimal places.
+</ParamField>
+
+<ParamField body="quantity_available" type="integer" required>
+  Number of units available. Must be a non-negative integer.
+</ParamField>
+
+<ParamField body="harvest_date" type="string" required>
+  Date of harvest in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="availability_status" type="string" default="AVAILABLE">
+  Initial availability status. One of `AVAILABLE`, `LOW_STOCK`, `SOLD_OUT`.
+</ParamField>
+
+<CodeGroup>
+
+```bash Create produce listing
+curl --request POST \
+  --url https://api.agropulse.com/api/produces/ \
+  --header "Authorization: Bearer <token>" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "produce_name": "Roma Tomatoes",
+    "category": "VEGETABLES",
+    "unit_price": "8.50",
+    "quantity_available": 200,
+    "harvest_date": "2025-04-15",
+    "availability_status": "AVAILABLE"
+  }'
+```
+
+</CodeGroup>
+
+```json 201 Response
+{
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "farmer": "1ab23c45-6789-0def-ghij-klmnopqrstuv",
+  "farmer_farm_name": "Green Valley Farm",
+  "farmer_user_full_name": "Ada Okafor",
+  "produce_name": "Roma Tomatoes",
+  "category": "VEGETABLES",
+  "unit_price": "8.50",
+  "quantity_available": 200,
+  "harvest_date": "2025-04-15",
+  "availability_status": "AVAILABLE",
+  "created_at": "2025-04-16T09:00:00Z",
+  "updated_at": "2025-04-16T09:00:00Z"
+}
+```
+
+---
+
+## Get produce detail
+
+<code>GET /api/produces/{id}/</code>
+
+Returns full details of a single produce listing, including expanded farmer information.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the produce listing.
+</ParamField>
+
+### Response fields
+
+<ResponseField name="id" type="string" required>
+  UUID of the produce listing.
+</ResponseField>
+
+<ResponseField name="farmer" type="string" required>
+  UUID of the farmer profile.
+</ResponseField>
+
+<ResponseField name="farmer_details" type="object">
+  Expanded farmer information. Read-only.
+  <Expandable title="properties">
+    <ResponseField name="farm_name" type="string">
+      Name of the farm.
+    </ResponseField>
+    <ResponseField name="farm_location" type="string">
+      Location of the farm.
+    </ResponseField>
+    <ResponseField name="farmer_name" type="string">
+      Full name of the farmer.
+    </ResponseField>
+    <ResponseField name="farmer_email" type="string">
+      Email address of the farmer.
+    </ResponseField>
+    <ResponseField name="farmer_phone" type="string">
+      Phone number of the farmer.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="produce_name" type="string" required>
+  Name of the produce item.
+</ResponseField>
+
+<ResponseField name="category" type="string" required>
+  Produce category.
+</ResponseField>
+
+<ResponseField name="unit_price" type="string" required>
+  Price per unit.
+</ResponseField>
+
+<ResponseField name="quantity_available" type="integer" required>
+  Units in stock.
+</ResponseField>
+
+<ResponseField name="harvest_date" type="string" required>
+  Date of harvest.
+</ResponseField>
+
+<ResponseField name="availability_status" type="string" required>
+  Current availability status.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Creation timestamp. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  Last update timestamp. Read-only.
+</ResponseField>
+
+```bash Get produce detail
+curl --request GET \
+  --url https://api.agropulse.com/api/produces/3fa85f64-5717-4562-b3fc-2c963f66afa6/
+```
+
+---
+
+## Update produce
+
+<code>PATCH /api/produces/{id}/</code>
+
+Partially updates a produce listing. Requires authentication. Farmers can only update their own listings. Admins can update any listing.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the produce listing to update.
+</ParamField>
+
+### Request body
+
+All fields are optional for a partial update. You may supply any combination of the writable fields below.
+
+<ParamField body="produce_name" type="string">
+  Updated name.
+</ParamField>
+
+<ParamField body="category" type="string">
+  Updated category. One of `VEGETABLES`, `FRUITS`, `GRAINS`, `DAIRY`, `MEAT`, `OTHER`.
+</ParamField>
+
+<ParamField body="unit_price" type="string">
+  Updated price per unit.
+</ParamField>
+
+<ParamField body="quantity_available" type="integer">
+  Updated quantity in stock.
+</ParamField>
+
+<ParamField body="harvest_date" type="string">
+  Updated harvest date in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="availability_status" type="string">
+  Updated availability. One of `AVAILABLE`, `LOW_STOCK`, `SOLD_OUT`.
+</ParamField>
+
+<Tip>
+  To update stock and have availability status set automatically, use the dedicated `PATCH /api/produces/{id}/update_stock/` action instead. It adjusts `availability_status` based on quantity thresholds (0 → `SOLD_OUT`, under 10 → `LOW_STOCK`, 10 or more → `AVAILABLE`).
+</Tip>
+
+```bash Update unit price
+curl --request PATCH \
+  --url https://api.agropulse.com/api/produces/3fa85f64-5717-4562-b3fc-2c963f66afa6/ \
+  --header "Authorization: Bearer <token>" \
+  --header "Content-Type: application/json" \
+  --data '{"unit_price": "9.00"}'
+```
+
+---
+
+## Delete produce
+
+<code>DELETE /api/produces/{id}/</code>
+
+Permanently deletes a produce listing. Requires authentication. Farmers can only delete their own listings. Admins can delete any listing.
+
+### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the produce listing to delete.
+</ParamField>
+
+Returns `204 No Content` on success.
+
+```bash Delete produce
+curl --request DELETE \
+  --url https://api.agropulse.com/api/produces/3fa85f64-5717-4562-b3fc-2c963f66afa6/ \
+  --header "Authorization: Bearer <token>"
+```

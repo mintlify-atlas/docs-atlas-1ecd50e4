@@ -1,0 +1,368 @@
+---
+title: "Payments API — initiate and verify transactions"
+description: "Manage payment lifecycle for orders on Agropulse, from Squad checkout initiation through webhook confirmation, with built-in escrow and split tracking."
+---
+
+The Payments API handles all monetary transactions on the Agropulse platform. When a buyer places an order, you initiate a payment to receive a Squad checkout URL. The buyer completes payment on that page, and Squad notifies Agropulse via webhook. On success, escrow and payment splits are created automatically.
+
+All payment amounts are stored in NGN (naira). Squad communicates amounts in kobo (1 NGN = 100 kobo), but the API accepts and returns naira values.
+
+<Note>
+  All endpoints require a valid bearer token in the `Authorization` header. Payments are scoped per user: buyers see payments for their own orders, farmers see payments for orders on their produce, and staff see all payments.
+</Note>
+
+---
+
+## Endpoints
+
+### List payments
+
+<ResponseField name="GET /api/payments/" type="endpoint" />
+
+Returns a paginated list of payments visible to the authenticated user. Supports filtering by `payment_status` and ordering by `created_at` or `amount`.
+
+**Query parameters**
+
+<ParamField query="payment_status" type="string">
+  Filter by status. One of `PENDING`, `SUCCESS`, `FAILED`, `REFUNDED`.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort field. Prefix with `-` for descending. Options: `created_at`, `amount`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List all payments
+curl --request GET \
+  --url https://api.agropulse.com/api/payments/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter by status
+curl --request GET \
+  --url 'https://api.agropulse.com/api/payments/?payment_status=PENDING' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+---
+
+### Initiate payment
+
+<ResponseField name="POST /api/payments/initialize_payment/" type="endpoint" />
+
+Creates a payment record and opens a Squad checkout session for the given order. Returns a `checkout_url` that you redirect the buyer to. If a successful payment already exists for the order, the request is rejected.
+
+**Request body**
+
+<ParamField body="order_id" type="string" required>
+  UUID of the order to pay for.
+</ParamField>
+
+**Response fields**
+
+<ResponseField name="payment_id" type="string">
+  UUID of the newly created payment record.
+</ResponseField>
+
+<ResponseField name="squad_transaction_id" type="string">
+  Transaction reference assigned by Squad.
+</ResponseField>
+
+<ResponseField name="checkout_url" type="string">
+  URL to redirect the buyer to for payment completion. Valid for the Squad session duration.
+</ResponseField>
+
+<ResponseField name="amount" type="string">
+  Order amount in NGN.
+</ResponseField>
+
+<CodeGroup>
+
+```bash Initiate payment
+curl --request POST \
+  --url https://api.agropulse.com/api/payments/initialize_payment/ \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "order_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+  }'
+```
+
+```json Response
+{
+  "payment_id": "a1b2c3d4-0000-0000-0000-000000000001",
+  "squad_transaction_id": "SQREF-1234567890",
+  "checkout_url": "https://checkout.squadco.com/pay/SQREF-1234567890",
+  "amount": "15000.00"
+}
+```
+
+</CodeGroup>
+
+<Tip>
+  Redirect the buyer to `checkout_url` immediately after receiving this response. Do not poll for payment status — rely on the webhook callback or use the verify endpoint after the buyer returns.
+</Tip>
+
+---
+
+### Get payment detail
+
+<ResponseField name="GET /api/payments/{id}/" type="endpoint" />
+
+Returns the full detail view for a single payment, including nested order information, escrow status, and split breakdown.
+
+<ParamField path="id" type="string" required>
+  UUID of the payment.
+</ParamField>
+
+**Response fields**
+
+<ResponseField name="id" type="string">
+  Payment UUID.
+</ResponseField>
+
+<ResponseField name="order" type="string">
+  UUID of the associated order.
+</ResponseField>
+
+<ResponseField name="order_details" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">Order UUID.</ResponseField>
+    <ResponseField name="buyer" type="string">Buyer's full name.</ResponseField>
+    <ResponseField name="farmer" type="string">Farmer's full name.</ResponseField>
+    <ResponseField name="total" type="string">Order total in NGN.</ResponseField>
+    <ResponseField name="status" type="string">Current order status.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="squad_transaction_id" type="string">
+  Squad transaction reference, set during initiation.
+</ResponseField>
+
+<ResponseField name="payment_method" type="string">
+  Payment method used. Populated after verification.
+</ResponseField>
+
+<ResponseField name="payment_status" type="string">
+  One of `PENDING`, `SUCCESS`, `FAILED`, `REFUNDED`.
+</ResponseField>
+
+<ResponseField name="amount" type="string">
+  Amount in NGN.
+</ResponseField>
+
+<ResponseField name="escrow_enabled" type="boolean">
+  Whether funds are held in escrow after successful payment.
+</ResponseField>
+
+<ResponseField name="escrow_details" type="object">
+  Present only when an escrow record exists (after payment succeeds).
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">Escrow UUID.</ResponseField>
+    <ResponseField name="amount_held" type="string">Amount held in NGN.</ResponseField>
+    <ResponseField name="release_status" type="string">`HELD`, `RELEASED`, or `DISPUTED`.</ResponseField>
+    <ResponseField name="released_at" type="string">ISO 8601 timestamp of fund release, or `null`.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="split_details" type="object">
+  Present only when a split record exists.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">Split UUID.</ResponseField>
+    <ResponseField name="farmer_amount" type="string">Farmer's share (80%) in NGN.</ResponseField>
+    <ResponseField name="rider_amount" type="string">Rider's share (10%) in NGN.</ResponseField>
+    <ResponseField name="platform_fee" type="string">Platform fee (10%) in NGN.</ResponseField>
+    <ResponseField name="farmer_processed" type="boolean">Whether the farmer payout has been disbursed.</ResponseField>
+    <ResponseField name="rider_processed" type="boolean">Whether the rider payout has been disbursed.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<CodeGroup>
+
+```bash Get payment detail
+curl --request GET \
+  --url https://api.agropulse.com/api/payments/a1b2c3d4-0000-0000-0000-000000000001/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+---
+
+### Update payment
+
+<ResponseField name="PATCH /api/payments/{id}/" type="endpoint" />
+
+Partially updates a payment record. Used for manual corrections; status transitions are normally driven by webhooks or the verify action.
+
+<ParamField path="id" type="string" required>
+  UUID of the payment.
+</ParamField>
+
+<ParamField body="payment_status" type="string">
+  One of `PENDING`, `SUCCESS`, `FAILED`, `REFUNDED`.
+</ParamField>
+
+<ParamField body="channel" type="string">
+  Payment channel. One of `USSD`, `CARD`, `TRANSFER`, `VIRTUAL-ACCOUNT`.
+</ParamField>
+
+<CodeGroup>
+
+```bash Update payment status
+curl --request PATCH \
+  --url https://api.agropulse.com/api/payments/a1b2c3d4-0000-0000-0000-000000000001/ \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "payment_status": "REFUNDED"
+  }'
+```
+
+</CodeGroup>
+
+---
+
+## Payment object reference
+
+<ResponseField name="id" type="string">
+  UUID primary key.
+</ResponseField>
+
+<ResponseField name="buyer" type="string">
+  UUID of the buyer's profile.
+</ResponseField>
+
+<ResponseField name="order" type="string">
+  UUID of the related order (one-to-one).
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Buyer's email address, copied from their account at payment creation.
+</ResponseField>
+
+<ResponseField name="squad_transaction_id" type="string">
+  Transaction reference returned by Squad on initiation.
+</ResponseField>
+
+<ResponseField name="payment_method" type="string">
+  Method used to complete payment (e.g. `card`, `bank`, `ussd`). Set by Squad on verification.
+</ResponseField>
+
+<ResponseField name="payment_status" type="string">
+  Current status. One of `PENDING`, `SUCCESS`, `FAILED`, `REFUNDED`.
+</ResponseField>
+
+<ResponseField name="amount" type="string">
+  Transaction amount in NGN.
+</ResponseField>
+
+<ResponseField name="currency" type="string">
+  Currency code. One of `NGN`, `USD`. Defaults to `NGN`.
+</ResponseField>
+
+<ResponseField name="channel" type="string">
+  Payment channel selected by the buyer. One of `USSD`, `CARD`, `TRANSFER`, `VIRTUAL-ACCOUNT`.
+</ResponseField>
+
+<ResponseField name="checkout_url" type="string">
+  Squad-hosted payment page URL. Populated after initiation, cleared once used.
+</ResponseField>
+
+<ResponseField name="escrow_enabled" type="boolean">
+  When `true`, a successful payment automatically creates an `EscrowAccount` and a `PaymentSplit`.
+</ResponseField>
+
+<ResponseField name="webhook_recieved" type="boolean">
+  Whether a webhook has been received from Squad for this payment. Note: this field name contains a typo (`recieved`) matching the source model.
+</ResponseField>
+
+<ResponseField name="webhook_verified" type="boolean">
+  Whether the received webhook signature was valid.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 last-update timestamp.
+</ResponseField>
+
+---
+
+## Payment splits
+
+Payment splits are created automatically when a payment with `escrow_enabled: true` is verified. The platform divides the order total as follows: **80%** to the farmer, **10%** to the rider, and **10%** as a platform fee.
+
+### List payment splits
+
+<ResponseField name="GET /api/payment-splits/" type="endpoint" />
+
+Returns all payment splits visible to the authenticated user.
+
+<CodeGroup>
+
+```bash List payment splits
+curl --request GET \
+  --url https://api.agropulse.com/api/payment-splits/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+---
+
+### Get payment split detail
+
+<ResponseField name="GET /api/payment-splits/{id}/" type="endpoint" />
+
+<ParamField path="id" type="string" required>
+  UUID of the payment split.
+</ParamField>
+
+**PaymentSplit object fields**
+
+<ResponseField name="id" type="string">UUID primary key.</ResponseField>
+
+<ResponseField name="payment" type="string">UUID of the parent payment.</ResponseField>
+
+<ResponseField name="payment_id" type="string">Alias for the parent payment UUID (read-only convenience field).</ResponseField>
+
+<ResponseField name="farmer_amount" type="string">Amount allocated to the farmer in NGN (80% of total).</ResponseField>
+
+<ResponseField name="rider_amount" type="string">Amount allocated to the delivery rider in NGN (10% of total).</ResponseField>
+
+<ResponseField name="platform_fee" type="string">Platform fee in NGN (10% of total).</ResponseField>
+
+<ResponseField name="farmer_processed" type="boolean">Set to `true` once the farmer payout has been disbursed.</ResponseField>
+
+<ResponseField name="rider_processed" type="boolean">Set to `true` once the rider payout has been disbursed.</ResponseField>
+
+<CodeGroup>
+
+```bash Get payment split
+curl --request GET \
+  --url https://api.agropulse.com/api/payment-splits/b2c3d4e5-0000-0000-0000-000000000002/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json Response
+{
+  "id": "b2c3d4e5-0000-0000-0000-000000000002",
+  "payment": "a1b2c3d4-0000-0000-0000-000000000001",
+  "payment_id": "a1b2c3d4-0000-0000-0000-000000000001",
+  "farmer_amount": "12000.00",
+  "rider_amount": "1500.00",
+  "platform_fee": "1500.00",
+  "farmer_processed": false,
+  "rider_processed": false,
+  "created_at": "2026-05-13T10:00:00Z",
+  "updated_at": "2026-05-13T10:00:00Z"
+}
+```
+
+</CodeGroup>

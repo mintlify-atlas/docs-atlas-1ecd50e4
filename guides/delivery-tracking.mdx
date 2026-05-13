@@ -1,0 +1,201 @@
+---
+title: "Track deliveries and manage rider earnings"
+description: "Track Agropulse deliveries from assignment through completion. Covers status transitions, rider assignment, pickup confirmation, and RiderEarnings creation."
+---
+
+Every order with a delivery type of `DELIVERY` can have a `Delivery` record assigned to a transporter. The delivery moves through a fixed status chain, and when it reaches `DELIVERED` the platform automatically creates a `RiderEarnings` record for the assigned rider.
+
+## Data relationships
+
+```
+Order
+ └── Delivery (one-to-one)
+      └── RiderEarnings (one-to-one, created on delivery confirmation)
+```
+
+An order has at most one delivery record. A delivery has at most one earnings record, created the moment `delivery_confirmation` is called.
+
+## Delivery statuses
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Delivery record created; rider may or may not be assigned |
+| `PICKED_UP` | Rider has collected the produce from the farmer |
+| `IN_TRANSIT` | Rider is on the way to the buyer |
+| `DELIVERED` | Buyer has received the order; earnings are created |
+
+Transitions are strictly sequential: `PENDING → PICKED_UP → IN_TRANSIT → DELIVERED`. You cannot skip a step or move backwards.
+
+## Creating a delivery record
+
+<Steps>
+  <Step title="Confirm the order uses delivery type DELIVERY">
+    Only orders with `delivery_type: "DELIVERY"` can have delivery records. Check the order before creating a delivery.
+  </Step>
+
+  <Step title="POST to /api/deliveries/">
+    ```bash
+    curl -X POST https://api.agropulse.example.com/api/deliveries/ \
+      -H "Authorization: Bearer <access_token>" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "order": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "transporter": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "delivery_address": "12 Adeola Odeku Street, Victoria Island, Lagos"
+      }'
+    ```
+
+    **Response:**
+
+    ```json
+    {
+      "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+      "order": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "transporter": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "delivery_status": "PENDING",
+      "delivery_address": "12 Adeola Odeku Street, Victoria Island, Lagos",
+      "picked_up_at": null,
+      "delivered_at": null,
+      "created_at": "2024-05-13T09:00:00Z"
+    }
+    ```
+  </Step>
+
+  <Step title="Check available riders (optional)">
+    Before assigning a transporter, confirm they have capacity. A transporter can handle up to 5 concurrent active deliveries.
+
+    ```bash
+    curl https://api.agropulse.example.com/api/deliveries/available_riders/ \
+      -H "Authorization: Bearer <access_token>"
+    ```
+
+    Each rider entry includes an `is_available` boolean and the count of `active_deliveries`.
+  </Step>
+</Steps>
+
+## Updating delivery status
+
+### Confirm pickup
+
+The rider calls this when they collect the produce from the farmer. Sets `delivery_status` to `PICKED_UP` and records `picked_up_at`.
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/deliveries/<id>/pickup_confirmation/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Start transit
+
+The rider calls this when they depart for the buyer's address. Sets `delivery_status` to `IN_TRANSIT`.
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/deliveries/<id>/start_transit/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Confirm delivery
+
+Called when the buyer receives the order. Sets `delivery_status` to `DELIVERED`, records `delivered_at`, and updates the parent order's status to `COMPLETED`.
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/deliveries/<id>/delivery_confirmation/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+This action also triggers escrow release eligibility — the buyer's funds can now be released to the farmer via `POST /api/escrow/<escrow_id>/release_funds/`.
+
+## Listing deliveries
+
+```bash
+# All deliveries visible to the authenticated user
+curl https://api.agropulse.example.com/api/deliveries/ \
+  -H "Authorization: Bearer <access_token>"
+
+# Filter by status
+curl "https://api.agropulse.example.com/api/deliveries/?delivery_status=IN_TRANSIT" \
+  -H "Authorization: Bearer <access_token>"
+
+# Transporter's own deliveries
+curl https://api.agropulse.example.com/api/deliveries/my_deliveries/ \
+  -H "Authorization: Bearer <access_token>"
+
+# All pending deliveries (public endpoint)
+curl https://api.agropulse.example.com/api/deliveries/pending_deliveries/
+```
+
+## RiderEarnings
+
+A `RiderEarnings` record is created automatically when `delivery_confirmation` is called. The earnings amount is **10% of the order total** (matching the rider's share in the `PaymentSplit`).
+
+### Earnings payment statuses
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Earnings recorded; payout not yet issued |
+| `PAID` | Payout has been issued to the rider |
+| `CANCELLED` | Earnings were voided (e.g. dispute or reversal) |
+
+### Listing rider earnings
+
+```bash
+# All earnings for the authenticated transporter
+curl https://api.agropulse.example.com/api/rider-earnings/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+**Response:**
+
+```json
+[
+  {
+    "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
+    "transporter": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "delivery": "c3d4e5f6-a7b8-9012-cdef-123456789012",
+    "earnings_amount": "1500.00",
+    "payment_status": "PENDING",
+    "paid_at": null,
+    "created_at": "2024-05-13T14:30:00Z"
+  }
+]
+```
+
+### Earnings summary
+
+```bash
+curl https://api.agropulse.example.com/api/rider-earnings/my_earnings/ \
+  -H "Authorization: Bearer <access_token>"
+```
+
+**Response:**
+
+```json
+{
+  "total_earned": "7500.00",
+  "total_paid": "6000.00",
+  "total_pending": "1500.00",
+  "completed_deliveries": 5,
+  "earnings_list": [...]
+}
+```
+
+### Marking earnings as paid (admin)
+
+Staff can mark an earnings record as paid once the bank transfer is confirmed:
+
+```bash
+curl -X POST https://api.agropulse.example.com/api/rider-earnings/<id>/mark_as_paid/ \
+  -H "Authorization: Bearer <admin_access_token>"
+```
+
+<Note>
+  Rider payouts are also tracked as `Payout` records with `payout_type: "RIDER"`. An admin can batch-process all pending rider payouts via `POST /api/payouts/process_rider_payouts/`. See the [Payments and escrow guide](/guides/payments-and-escrow) for the full payout flow.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Delivery API reference" href="/api-reference/delivery">
+    Full endpoint reference for deliveries and rider earnings.
+  </Card>
+  <Card title="Payments and escrow" href="/guides/payments-and-escrow">
+    Understand how delivery confirmation triggers escrow release and farmer payouts.
+  </Card>
+</CardGroup>

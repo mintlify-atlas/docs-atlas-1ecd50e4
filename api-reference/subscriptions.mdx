@@ -1,0 +1,639 @@
+---
+title: "Subscriptions API — recurring produce orders"
+description: "Endpoints for creating and managing recurring produce subscriptions, auto-generated subscription orders, and associated payment records for buyers and farmers."
+---
+
+The Subscriptions API lets buyers set up recurring produce orders from a specific farmer at a chosen frequency. Once active, the system auto-generates `SubscriptionOrder` records on each scheduled date. Payments are tracked separately via `SubscriptionPayment` records linked one-to-one to each subscription order.
+
+<Note>
+  A buyer can hold only one active subscription per farmer–produce combination. Attempting to create a duplicate returns a validation error.
+</Note>
+
+## Access control
+
+Results are automatically scoped by role:
+
+- **Admin** — all subscriptions, orders, and payments.
+- **Buyer** — only their own subscriptions, and orders and payments derived from them.
+- **Farmer** — subscriptions, orders, and payments associated with their produce.
+
+---
+
+## Subscriptions
+
+### List subscriptions
+
+<ParamField path="GET /api/subscriptions/" type="string">
+  Returns a list of subscriptions visible to the authenticated user.
+</ParamField>
+
+**Query parameters**
+
+<ParamField query="status" type="string">
+  Filter by subscription status. One of `ACTIVE`, `PAUSED`, `CANCELLED`.
+</ParamField>
+
+<ParamField query="frequency" type="string">
+  Filter by delivery frequency. One of `DAILY`, `WEEKLY`, `MONTHLY`.
+</ParamField>
+
+<ParamField query="active" type="boolean">
+  Filter by active flag. `true` returns only active subscriptions; `false` returns paused or cancelled.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort by `created_at` or `next_expected_order_date`. Prefix with `-` for descending. Defaults to `-created_at`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List subscriptions
+curl --request GET \
+  --url https://api.agropulse.example.com/api/subscriptions/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter active weekly subscriptions
+curl --request GET \
+  --url 'https://api.agropulse.example.com/api/subscriptions/?status=ACTIVE&frequency=WEEKLY' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+**Response fields**
+
+<ResponseField name="id" type="string" required>
+  UUID of the subscription.
+</ResponseField>
+
+<ResponseField name="buyer" type="string" required>
+  UUID of the buyer profile.
+</ResponseField>
+
+<ResponseField name="buyer_name" type="string">
+  Full name of the buyer. Read-only.
+</ResponseField>
+
+<ResponseField name="farmer" type="string" required>
+  UUID of the farmer profile.
+</ResponseField>
+
+<ResponseField name="farmer_name" type="string">
+  Full name of the farmer. Read-only.
+</ResponseField>
+
+<ResponseField name="produce" type="string" required>
+  UUID of the produce item.
+</ResponseField>
+
+<ResponseField name="produce_name" type="string">
+  Name of the produce. Read-only.
+</ResponseField>
+
+<ResponseField name="produce_price" type="string">
+  Unit price of the produce as a decimal string. Read-only.
+</ResponseField>
+
+<ResponseField name="frequency" type="string" required>
+  Delivery frequency. One of `DAILY`, `WEEKLY`, `MONTHLY`.
+</ResponseField>
+
+<ResponseField name="expected_quantity" type="number" required>
+  Number of units expected per order cycle.
+</ResponseField>
+
+<ResponseField name="next_expected_order_date" type="string" required>
+  ISO 8601 date of the next scheduled order generation.
+</ResponseField>
+
+<ResponseField name="active" type="boolean">
+  `true` when the subscription is in `ACTIVE` status. Set to `false` when paused or cancelled.
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  One of `ACTIVE`, `PAUSED`, `CANCELLED`.
+</ResponseField>
+
+<ResponseField name="subscription_start_date" type="string">
+  ISO 8601 date the subscription was created. Read-only.
+</ResponseField>
+
+<ResponseField name="subscription_end_date" type="string">
+  ISO 8601 date the subscription was cancelled. `null` until cancelled. Read-only.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 datetime the record was created. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 datetime of the last update. Read-only.
+</ResponseField>
+
+---
+
+### Create a subscription
+
+<ParamField path="POST /api/subscriptions/" type="string">
+  Creates a new recurring subscription for a buyer–farmer–produce combination.
+</ParamField>
+
+<Warning>
+  The `buyer + farmer + produce` combination must be unique. Creating a duplicate returns a 400 error.
+</Warning>
+
+**Request body**
+
+<ParamField body="buyer" type="string" required>
+  UUID of the buyer profile placing the subscription.
+</ParamField>
+
+<ParamField body="farmer" type="string" required>
+  UUID of the farmer profile supplying the produce.
+</ParamField>
+
+<ParamField body="produce" type="string" required>
+  UUID of the produce item to subscribe to.
+</ParamField>
+
+<ParamField body="frequency" type="string" required>
+  Delivery cadence. One of `DAILY`, `WEEKLY`, `MONTHLY`.
+</ParamField>
+
+<ParamField body="expected_quantity" type="number" default="1">
+  Number of units expected each cycle.
+</ParamField>
+
+<ParamField body="next_expected_order_date" type="string" required>
+  ISO 8601 date for the first order. Must be today or in the future.
+</ParamField>
+
+<CodeGroup>
+
+```bash Create subscription
+curl --request POST \
+  --url https://api.agropulse.example.com/api/subscriptions/ \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "buyer": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "farmer": "3d6f4445-eb35-4b54-99f9-a2f4cf0b1234",
+    "produce": "b5e4a3c2-1d0e-4f8b-9a7c-6e5d4c3b2a1f",
+    "frequency": "WEEKLY",
+    "expected_quantity": 5,
+    "next_expected_order_date": "2024-11-08"
+  }'
+```
+
+```json 201 Response
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "buyer": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "buyer_name": "Amara Foods Ltd",
+  "farmer": "3d6f4445-eb35-4b54-99f9-a2f4cf0b1234",
+  "farmer_name": "Emeka Farms",
+  "produce": "b5e4a3c2-1d0e-4f8b-9a7c-6e5d4c3b2a1f",
+  "produce_name": "Tomatoes",
+  "produce_price": "500.00",
+  "frequency": "WEEKLY",
+  "expected_quantity": 5,
+  "next_expected_order_date": "2024-11-08",
+  "active": true,
+  "status": "ACTIVE",
+  "subscription_start_date": "2024-11-01",
+  "subscription_end_date": null,
+  "created_at": "2024-11-01T10:00:00Z",
+  "updated_at": "2024-11-01T10:00:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+### Get subscription detail
+
+<ParamField path="GET /api/subscriptions/{id}/" type="string">
+  Returns full detail for a single subscription, including nested buyer, farmer, produce objects, and the last 10 generated orders.
+</ParamField>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the subscription.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get subscription
+curl --request GET \
+  --url https://api.agropulse.example.com/api/subscriptions/a1b2c3d4-e5f6-7890-abcd-ef1234567890/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+**Additional response fields (detail view only)**
+
+<ResponseField name="buyer_details" type="object">
+  Nested buyer summary.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the buyer profile.</ResponseField>
+    <ResponseField name="name" type="string">Full name.</ResponseField>
+    <ResponseField name="email" type="string">Email address.</ResponseField>
+    <ResponseField name="business_name" type="string">Registered business name.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="farmer_details" type="object">
+  Nested farmer summary.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the farmer profile.</ResponseField>
+    <ResponseField name="name" type="string">Full name.</ResponseField>
+    <ResponseField name="email" type="string">Email address.</ResponseField>
+    <ResponseField name="farm_name" type="string">Name of the farm.</ResponseField>
+    <ResponseField name="farm_location" type="string">Location of the farm.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="produce_details" type="object">
+  Nested produce summary.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the produce item.</ResponseField>
+    <ResponseField name="name" type="string">Produce name.</ResponseField>
+    <ResponseField name="category" type="string">Produce category.</ResponseField>
+    <ResponseField name="unit_price" type="string">Current unit price as a decimal string.</ResponseField>
+    <ResponseField name="quantity_available" type="number">Stock available at time of request.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="orders" type="array">
+  The last 10 subscription orders generated for this subscription. See [SubscriptionOrder fields](#subscription-orders) for the shape of each item.
+</ResponseField>
+
+---
+
+### Update subscription
+
+<ParamField path="PATCH /api/subscriptions/{id}/" type="string">
+  Partially updates a subscription. You can change `frequency`, `expected_quantity`, `next_expected_order_date`, or `status` directly, but prefer the dedicated action endpoints for pause, resume, and cancel operations.
+</ParamField>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the subscription.
+</ParamField>
+
+**Request body (all fields optional)**
+
+<ParamField body="frequency" type="string">
+  New delivery frequency. One of `DAILY`, `WEEKLY`, `MONTHLY`.
+</ParamField>
+
+<ParamField body="expected_quantity" type="number">
+  Updated quantity per cycle.
+</ParamField>
+
+<ParamField body="next_expected_order_date" type="string">
+  Reschedule the next order date (ISO 8601 date).
+</ParamField>
+
+**Pause, resume, and cancel actions**
+
+Use these POST endpoints to transition subscription status. They update both `status` and `active` atomically, and record `subscription_end_date` on cancellation.
+
+| Action | Endpoint | Effect |
+|--------|----------|--------|
+| Pause | `POST /api/subscriptions/{id}/pause/` | Sets `status` to `PAUSED`, `active` to `false`. |
+| Resume | `POST /api/subscriptions/{id}/resume/` | Sets `status` to `ACTIVE`, `active` to `true`. |
+| Cancel | `POST /api/subscriptions/{id}/cancel/` | Sets `status` to `CANCELLED`, `active` to `false`, records `subscription_end_date`. |
+
+<CodeGroup>
+
+```bash Pause subscription
+curl --request POST \
+  --url https://api.agropulse.example.com/api/subscriptions/a1b2c3d4-e5f6-7890-abcd-ef1234567890/pause/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Resume subscription
+curl --request POST \
+  --url https://api.agropulse.example.com/api/subscriptions/a1b2c3d4-e5f6-7890-abcd-ef1234567890/resume/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Cancel subscription
+curl --request POST \
+  --url https://api.agropulse.example.com/api/subscriptions/a1b2c3d4-e5f6-7890-abcd-ef1234567890/cancel/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+<Note>
+  Cancellation sets `subscription_end_date` to today's date and stops future order generation. A cancelled subscription cannot be resumed.
+</Note>
+
+---
+
+### Delete subscription
+
+<ParamField path="DELETE /api/subscriptions/{id}/" type="string">
+  Permanently removes a subscription and all linked subscription orders.
+</ParamField>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the subscription.
+</ParamField>
+
+```bash
+curl --request DELETE \
+  --url https://api.agropulse.example.com/api/subscriptions/a1b2c3d4-e5f6-7890-abcd-ef1234567890/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+Returns `204 No Content` on success.
+
+---
+
+## Subscription orders
+
+Subscription orders are auto-generated by the system on each scheduled date. This resource is read-only — you cannot create or delete subscription orders via the API.
+
+### List subscription orders
+
+<ParamField path="GET /api/subscription-orders/" type="string">
+  Returns a list of subscription orders visible to the authenticated user.
+</ParamField>
+
+**Query parameters**
+
+<ParamField query="subscription" type="string">
+  Filter by subscription UUID.
+</ParamField>
+
+<ParamField query="order_status" type="string">
+  Filter by order status. One of `PENDING`, `CONFIRMED`, `DELIVERED`, `FAILED`, `SKIPPED`.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort by `scheduled_date` or `created_at`. Prefix with `-` for descending. Defaults to `-scheduled_date`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List subscription orders
+curl --request GET \
+  --url https://api.agropulse.example.com/api/subscription-orders/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter pending orders for a subscription
+curl --request GET \
+  --url 'https://api.agropulse.example.com/api/subscription-orders/?subscription=a1b2c3d4-e5f6-7890-abcd-ef1234567890&order_status=PENDING' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+**Response fields**
+
+<ResponseField name="id" type="string" required>
+  UUID of the subscription order.
+</ResponseField>
+
+<ResponseField name="subscription" type="string" required>
+  UUID of the parent subscription.
+</ResponseField>
+
+<ResponseField name="subscription_id" type="string">
+  Alias for the parent subscription UUID. Read-only.
+</ResponseField>
+
+<ResponseField name="produce_name" type="string">
+  Name of the subscribed produce. Read-only.
+</ResponseField>
+
+<ResponseField name="order_id" type="string">
+  UUID linking to the corresponding `Order` record, if one was created. Read-only.
+</ResponseField>
+
+<ResponseField name="quantity" type="number" required>
+  Number of units in this order cycle.
+</ResponseField>
+
+<ResponseField name="unit_price" type="string" required>
+  Unit price at time of order generation, as a decimal string.
+</ResponseField>
+
+<ResponseField name="total_amount" type="string" required>
+  Total value (`quantity × unit_price`), as a decimal string.
+</ResponseField>
+
+<ResponseField name="order_status" type="string" required>
+  One of `PENDING`, `CONFIRMED`, `DELIVERED`, `FAILED`, `SKIPPED`.
+</ResponseField>
+
+<ResponseField name="scheduled_date" type="string" required>
+  ISO 8601 date this order was scheduled for.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 datetime the record was created. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 datetime of the last update. Read-only.
+</ResponseField>
+
+---
+
+### Get subscription order detail
+
+<ParamField path="GET /api/subscription-orders/{id}/" type="string">
+  Returns full detail for a single subscription order, including nested subscription context and payment details.
+</ParamField>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the subscription order.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get subscription order
+curl --request GET \
+  --url https://api.agropulse.example.com/api/subscription-orders/e1f2a3b4-c5d6-7890-ef12-34567890abcd/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json 200 Response
+{
+  "id": "e1f2a3b4-c5d6-7890-ef12-34567890abcd",
+  "subscription": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "subscription_details": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "buyer": "Amara Foods Ltd",
+    "farmer": "Emeka Farms",
+    "frequency": "WEEKLY"
+  },
+  "order_id": null,
+  "quantity": 5,
+  "unit_price": "500.00",
+  "total_amount": "2500.00",
+  "order_status": "PENDING",
+  "scheduled_date": "2024-11-08",
+  "payment_details": null,
+  "created_at": "2024-11-08T00:00:00Z",
+  "updated_at": "2024-11-08T00:00:00Z"
+}
+```
+
+</CodeGroup>
+
+**Additional response fields (detail view only)**
+
+<ResponseField name="subscription_details" type="object">
+  Nested subscription context.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the parent subscription.</ResponseField>
+    <ResponseField name="buyer" type="string">Full name of the buyer.</ResponseField>
+    <ResponseField name="farmer" type="string">Full name of the farmer.</ResponseField>
+    <ResponseField name="frequency" type="string">Delivery frequency.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="payment_details" type="object">
+  Associated payment record, if one exists. `null` if payment has not been created yet.
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">UUID of the payment record.</ResponseField>
+    <ResponseField name="amount" type="string">Payment amount as a decimal string.</ResponseField>
+    <ResponseField name="status" type="string">Payment status. One of `PENDING`, `COMPLETED`, `FAILED`, `REFUNDED`.</ResponseField>
+    <ResponseField name="method" type="string">Payment method used.</ResponseField>
+    <ResponseField name="date" type="string">ISO 8601 datetime of payment.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Subscription payments
+
+Payment records are linked one-to-one to subscription orders. This resource is read-only.
+
+### List subscription payments
+
+<ParamField path="GET /api/subscription-payments/" type="string">
+  Returns a list of subscription payment records visible to the authenticated user.
+</ParamField>
+
+**Query parameters**
+
+<ParamField query="payment_status" type="string">
+  Filter by payment status. One of `PENDING`, `COMPLETED`, `FAILED`, `REFUNDED`.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort by `payment_date` or `created_at`. Prefix with `-` for descending. Defaults to `-payment_date`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List payments
+curl --request GET \
+  --url https://api.agropulse.example.com/api/subscription-payments/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter completed payments
+curl --request GET \
+  --url 'https://api.agropulse.example.com/api/subscription-payments/?payment_status=COMPLETED' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+**Response fields**
+
+<ResponseField name="id" type="string" required>
+  UUID of the payment record.
+</ResponseField>
+
+<ResponseField name="subscription_order" type="string" required>
+  UUID of the linked subscription order.
+</ResponseField>
+
+<ResponseField name="subscription_order_id" type="string">
+  Alias for the linked subscription order UUID. Read-only.
+</ResponseField>
+
+<ResponseField name="order_amount" type="string">
+  Total amount of the subscription order as a decimal string. Read-only.
+</ResponseField>
+
+<ResponseField name="amount" type="string" required>
+  Payment amount as a decimal string.
+</ResponseField>
+
+<ResponseField name="payment_status" type="string" required>
+  One of `PENDING`, `COMPLETED`, `FAILED`, `REFUNDED`.
+</ResponseField>
+
+<ResponseField name="payment_method" type="string">
+  Payment method used. Defaults to `auto`.
+</ResponseField>
+
+<ResponseField name="payment_date" type="string">
+  ISO 8601 datetime when payment was processed. `null` until completed. Read-only.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 datetime the record was created. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 datetime of the last update. Read-only.
+</ResponseField>
+
+---
+
+### Get subscription payment detail
+
+<ParamField path="GET /api/subscription-payments/{id}/" type="string">
+  Returns detail for a single subscription payment record.
+</ParamField>
+
+**Path parameters**
+
+<ParamField path="id" type="string" required>
+  UUID of the payment record.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get payment
+curl --request GET \
+  --url https://api.agropulse.example.com/api/subscription-payments/p1q2r3s4-t5u6-7890-vwxy-z123456789ab/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json 200 Response
+{
+  "id": "p1q2r3s4-t5u6-7890-vwxy-z123456789ab",
+  "subscription_order": "e1f2a3b4-c5d6-7890-ef12-34567890abcd",
+  "subscription_order_id": "e1f2a3b4-c5d6-7890-ef12-34567890abcd",
+  "order_amount": "2500.00",
+  "amount": "2500.00",
+  "payment_status": "COMPLETED",
+  "payment_method": "auto",
+  "payment_date": "2024-11-08T08:15:00Z",
+  "created_at": "2024-11-08T08:15:00Z",
+  "updated_at": "2024-11-08T08:15:00Z"
+}
+```
+
+</CodeGroup>

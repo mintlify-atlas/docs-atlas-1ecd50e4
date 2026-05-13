@@ -1,0 +1,241 @@
+---
+title: "Payouts API — disburse funds to farmers and riders"
+description: "Track and manage payout disbursements to farmers and delivery riders after escrow release and payment split allocation on Agropulse."
+---
+
+The Payouts API tracks disbursements to the two recipient types on the platform: farmers and delivery riders. Each payout corresponds to a completed payment and is tied to either a farmer **or** a rider — never both in the same record. Payout records are created automatically when escrow is released (for farmers) or when a rider split is processed (for riders).
+
+<Note>
+  Farmers and riders can only see their own payouts. Admins see all payouts and have access to bulk processing actions (`process_farmer_payouts`, `process_rider_payouts`).
+</Note>
+
+---
+
+## Payout lifecycle
+
+A payout moves through the following statuses:
+
+| Status | Meaning |
+|--------|---------|
+| `PENDING` | Created but not yet picked up for processing. |
+| `PROCESSING` | Queued for bank transfer; disbursement in progress. |
+| `COMPLETED` | Funds successfully sent. `bank_reference` and `completed_at` are set. |
+| `FAILED` | Disbursement attempt failed. The record remains for retry. |
+
+---
+
+## Endpoints
+
+### List payouts
+
+<ResponseField name="GET /api/payouts/" type="endpoint" />
+
+Returns payouts visible to the authenticated user. Supports filtering by `payout_status` and `payout_type`, and ordering by `created_at` or `amount`.
+
+**Query parameters**
+
+<ParamField query="payout_status" type="string">
+  Filter by status. One of `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`.
+</ParamField>
+
+<ParamField query="payout_type" type="string">
+  Filter by recipient type. One of `FARMER`, `RIDER`.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort field. Prefix with `-` for descending. Options: `created_at`, `amount`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List all payouts
+curl --request GET \
+  --url https://api.agropulse.com/api/payouts/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter pending farmer payouts
+curl --request GET \
+  --url 'https://api.agropulse.com/api/payouts/?payout_status=PENDING&payout_type=FARMER' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+---
+
+### Create payout
+
+<ResponseField name="POST /api/payouts/" type="endpoint" />
+
+Manually creates a payout record. In normal operation, payouts are created automatically by the escrow release flow. Use this endpoint for manual disbursements or corrections.
+
+<Warning>
+  Set either `farmer` or `rider`, not both. The `payout_type` must match the recipient: use `FARMER` when `farmer` is set, and `RIDER` when `rider` is set.
+</Warning>
+
+**Request body**
+
+<ParamField body="payment" type="string" required>
+  UUID of the parent payment.
+</ParamField>
+
+<ParamField body="payout_type" type="string" required>
+  Recipient category. One of `FARMER`, `RIDER`.
+</ParamField>
+
+<ParamField body="amount" type="string" required>
+  Amount to disburse in NGN.
+</ParamField>
+
+<ParamField body="farmer" type="string">
+  UUID of the farmer profile. Required when `payout_type` is `FARMER`.
+</ParamField>
+
+<ParamField body="rider" type="string">
+  UUID of the transporter profile. Required when `payout_type` is `RIDER`.
+</ParamField>
+
+<CodeGroup>
+
+```bash Create payout
+curl --request POST \
+  --url https://api.agropulse.com/api/payouts/ \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "payment": "a1b2c3d4-0000-0000-0000-000000000001",
+    "payout_type": "FARMER",
+    "farmer": "f1a2b3c4-0000-0000-0000-000000000010",
+    "amount": "12000.00"
+  }'
+```
+
+```json Response
+{
+  "id": "d4e5f6a7-0000-0000-0000-000000000004",
+  "payment": "a1b2c3d4-0000-0000-0000-000000000001",
+  "payment_id": "a1b2c3d4-0000-0000-0000-000000000001",
+  "farmer": "f1a2b3c4-0000-0000-0000-000000000010",
+  "farmer_name": "Emeka Okonkwo",
+  "rider": null,
+  "rider_name": null,
+  "payout_type": "FARMER",
+  "amount": "12000.00",
+  "payout_status": "PENDING",
+  "bank_reference": null,
+  "completed_at": null,
+  "created_at": "2026-05-13T15:00:00Z",
+  "updated_at": "2026-05-13T15:00:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+### Get payout detail
+
+<ResponseField name="GET /api/payouts/{id}/" type="endpoint" />
+
+Returns the full detail view for a single payout, including nested farmer or rider information and parent payment info.
+
+<ParamField path="id" type="string" required>
+  UUID of the payout.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get payout detail
+curl --request GET \
+  --url https://api.agropulse.com/api/payouts/d4e5f6a7-0000-0000-0000-000000000004/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json Response
+{
+  "id": "d4e5f6a7-0000-0000-0000-000000000004",
+  "payment": "a1b2c3d4-0000-0000-0000-000000000001",
+  "payment_info": {
+    "id": "a1b2c3d4-0000-0000-0000-000000000001",
+    "amount": "15000.00",
+    "status": "SUCCESS"
+  },
+  "farmer_details": {
+    "id": "f1a2b3c4-0000-0000-0000-000000000010",
+    "name": "Emeka Okonkwo",
+    "email": "emeka@farm.ng",
+    "farm_name": "Okonkwo Farms"
+  },
+  "rider_details": null,
+  "payout_type": "FARMER",
+  "amount": "12000.00",
+  "payout_status": "COMPLETED",
+  "bank_reference": "NIP2026051312345",
+  "completed_at": "2026-05-13T16:00:00Z",
+  "created_at": "2026-05-13T15:00:00Z",
+  "updated_at": "2026-05-13T16:00:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+## Payout object reference
+
+<ResponseField name="id" type="string">
+  UUID primary key.
+</ResponseField>
+
+<ResponseField name="payment" type="string">
+  UUID of the parent payment.
+</ResponseField>
+
+<ResponseField name="payment_id" type="string">
+  Alias for the parent payment UUID (read-only convenience field).
+</ResponseField>
+
+<ResponseField name="farmer" type="string">
+  UUID of the farmer profile recipient. `null` for rider payouts.
+</ResponseField>
+
+<ResponseField name="farmer_name" type="string">
+  Farmer's full name (read-only). `null` for rider payouts.
+</ResponseField>
+
+<ResponseField name="rider" type="string">
+  UUID of the transporter profile recipient. `null` for farmer payouts.
+</ResponseField>
+
+<ResponseField name="rider_name" type="string">
+  Rider's full name (read-only). `null` for farmer payouts.
+</ResponseField>
+
+<ResponseField name="payout_type" type="string">
+  Recipient category. One of `FARMER`, `RIDER`. A single payout goes to one recipient type only.
+</ResponseField>
+
+<ResponseField name="amount" type="string">
+  Amount disbursed in NGN.
+</ResponseField>
+
+<ResponseField name="payout_status" type="string">
+  Current status. One of `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`.
+</ResponseField>
+
+<ResponseField name="bank_reference" type="string">
+  Bank transfer reference number. Set when `payout_status` transitions to `COMPLETED`.
+</ResponseField>
+
+<ResponseField name="completed_at" type="string">
+  ISO 8601 timestamp of completion. `null` until the payout is marked completed.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 last-update timestamp.
+</ResponseField>

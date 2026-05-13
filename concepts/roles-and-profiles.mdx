@@ -1,0 +1,141 @@
+---
+title: "User roles and profiles in Agropulse"
+description: "Agropulse users pick one of three roles—BUYER, SELLER (farmer), or TRANSPORTER—then create a role-specific profile with farm, business, or vehicle details."
+---
+
+Every Agropulse account is built from two layers: a shared `User` record that holds identity and authentication data, and a role-specific profile that captures the details relevant to how that person participates in the marketplace. When you register, you choose a role—BUYER, SELLER, or TRANSPORTER—and then create the matching profile as a separate step after registration.
+
+## The User model
+
+All three roles share the same `User` model. Authentication is email-based, and each user is assigned a UUID primary key on creation.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | UUID | Auto-generated, read-only |
+| `full_name` | string | Required at registration |
+| `email` | string | Unique; used as login username |
+| `phone_number` | string | Up to 20 characters |
+| `role` | enum | `BUYER`, `SELLER`, or `TRANSPORTER` |
+| `is_active` | boolean | Defaults to `true` |
+| `created_at` | datetime | Set on creation |
+| `updated_at` | datetime | Updated on every save |
+
+<Note>
+  The API uses `email` as the `USERNAME_FIELD`. Passwords are managed by Django's `AbstractBaseUser`, and OTP verification is required before a user can access protected endpoints.
+</Note>
+
+## Role-specific profiles
+
+After registration, each user must create a profile that corresponds to their role. Profiles are linked to the `User` record via a one-to-one relationship. You can only have one profile per user.
+
+<Tabs>
+  <Tab title="Farmer (SELLER)">
+    Farmers list produce, receive orders, and get paid through escrow. The `FarmerProfile` captures farm identity and a platform-calculated trust score.
+
+    | Field | Type | Notes |
+    |---|---|---|
+    | `id` | UUID | Auto-generated, read-only |
+    | `user` | User | One-to-one link to the User record |
+    | `farm_name` | string | Display name for the farm |
+    | `farm_location` | string | Physical location of the farm |
+    | `trust_score` | decimal | Platform-managed score (0.00–9.99); starts at 0.00 |
+    | `created_at` | datetime | Set on creation |
+    | `updated_at` | datetime | Updated on every save |
+
+    ```json
+    {
+      "id": "a1b2c3d4-...",
+      "user": "e5f6a7b8-...",
+      "farm_name": "Green Acres Farm",
+      "farm_location": "Ogun State, Nigeria",
+      "trust_score": "4.50"
+    }
+    ```
+  </Tab>
+  <Tab title="Buyer">
+    Buyers browse produce, place orders, and make payments. The `BuyerProfile` distinguishes between individual consumers, restaurants, and wholesale buyers.
+
+    | Field | Type | Notes |
+    |---|---|---|
+    | `id` | UUID | Auto-generated, read-only |
+    | `user` | User | One-to-one link to the User record |
+    | `business_name` | string | Optional; relevant for restaurants and wholesalers |
+    | `buyer_type` | enum | `INDIVIDUAL`, `RESTAURANT`, or `WHOLESALER` |
+    | `location` | string | Buyer's delivery or business location |
+    | `created_at` | datetime | Set on creation |
+    | `updated_at` | datetime | Updated on every save |
+
+    ```json
+    {
+      "id": "b2c3d4e5-...",
+      "user": "f7a8b9c0-...",
+      "business_name": "Lagos Fresh Kitchen",
+      "buyer_type": "RESTAURANT",
+      "location": "Victoria Island, Lagos"
+    }
+    ```
+  </Tab>
+  <Tab title="Transporter">
+    Transporters accept delivery jobs and earn a rider fee when an order is delivered. The `TransporterProfile` records vehicle information and the areas they serve.
+
+    | Field | Type | Notes |
+    |---|---|---|
+    | `id` | UUID | Auto-generated, read-only |
+    | `user` | User | One-to-one link to the User record |
+    | `vehicle_type` | string | E.g., motorcycle, van, truck |
+    | `plate_number` | string | Up to 50 characters |
+    | `service_area` | string | Geographic area the transporter covers |
+    | `created_at` | datetime | Set on creation |
+    | `updated_at` | datetime | Updated on every save |
+
+    ```json
+    {
+      "id": "c3d4e5f6-...",
+      "user": "a9b0c1d2-...",
+      "vehicle_type": "motorcycle",
+      "plate_number": "LND-234KY",
+      "service_area": "Lagos Mainland"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Profile creation flow
+
+Profiles are not created automatically at registration. After a user account is created and OTP-verified, a separate API call is required to create the matching profile.
+
+<Steps>
+  <Step title="Register the user">
+    Create a `User` record with `full_name`, `email`, `phone_number`, and `role`.
+  </Step>
+  <Step title="Verify via OTP">
+    The user receives a one-time password. Submit it to verify the account. Endpoints protected by `IsOTPVerified` are inaccessible until this step is complete.
+  </Step>
+  <Step title="Create the role profile">
+    Call the appropriate profile creation endpoint for the user's role:
+    - `POST /api/farmer-profiles/` for SELLER users
+    - `POST /api/buyer-profiles/` for BUYER users
+    - `POST /api/transporter-profiles/` for TRANSPORTER users
+  </Step>
+</Steps>
+
+<Warning>
+  Attempting to access order, payment, or delivery endpoints before creating a role profile will result in errors, since those resources reference profile IDs—not user IDs.
+</Warning>
+
+## Related references
+
+<CardGroup cols={2}>
+  <Card title="Users API" href="/api-reference/users">
+    Register users, log in, and manage authentication.
+  </Card>
+  <Card title="Farmer profiles API" href="/api-reference/farmer-profiles">
+    Create and retrieve farmer profiles.
+  </Card>
+  <Card title="Buyer profiles API" href="/api-reference/buyer-profiles">
+    Create and retrieve buyer profiles.
+  </Card>
+  <Card title="Transporter profiles API" href="/api-reference/transporter-profiles">
+    Create and retrieve transporter profiles.
+  </Card>
+</CardGroup>

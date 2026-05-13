@@ -1,0 +1,79 @@
+---
+title: "Agropulse API: Agricultural Commerce Platform"
+description: "Agropulse is a REST API powering agricultural commerce for farmers, buyers, and riders — covering produce, orders, payments, delivery, and subscriptions."
+---
+
+Agropulse is an AI-powered agricultural commerce platform built with Django REST Framework. It provides a complete backend API for connecting farmers who list produce, buyers who place orders, and transporters who handle deliveries — all within a single unified platform.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Make your first API call and set up your development environment in minutes
+  </Card>
+  <Card title="Authentication" icon="key" href="/authentication">
+    Learn how to obtain JWT tokens and authenticate every request
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/users">
+    Explore all endpoints across users, produce, orders, payments, and more
+  </Card>
+  <Card title="Payment Guide" icon="credit-card" href="/guides/payments-and-escrow">
+    Integrate Squad payments with escrow, splits, and payout flows
+  </Card>
+</CardGroup>
+
+## What Agropulse covers
+
+Agropulse is organized into six core domains, each exposed as a set of REST endpoints:
+
+<CardGroup cols={3}>
+  <Card title="Users & Profiles" icon="users" href="/api-reference/users">
+    Register as a buyer, farmer, or transporter with role-based access
+  </Card>
+  <Card title="Produce Catalog" icon="seedling" href="/api-reference/produce">
+    List, search, and filter fresh produce by category and availability
+  </Card>
+  <Card title="Orders" icon="basket-shopping" href="/api-reference/orders">
+    Place and track orders through their full lifecycle
+  </Card>
+  <Card title="Payments" icon="money-bill" href="/api-reference/payments">
+    Initiate payments via Squad with built-in escrow protection
+  </Card>
+  <Card title="Delivery" icon="truck" href="/api-reference/delivery">
+    Assign riders, track delivery status, and manage rider earnings
+  </Card>
+  <Card title="Subscriptions" icon="calendar-check" href="/api-reference/subscriptions">
+    Set up recurring produce orders on daily, weekly, or monthly schedules
+  </Card>
+</CardGroup>
+
+## Get started in four steps
+
+<Steps>
+  <Step title="Set up your environment">
+    Install Python 3.12+, Poetry, and PostgreSQL. Clone the repository and configure your `.env` file with database and Squad credentials. See the [environment setup guide](/guides/environment-setup) for the full list of required variables.
+  </Step>
+  <Step title="Register and authenticate">
+    Create a user account via `POST /api/users/register/`, then log in with `POST /api/users/login/` to receive your JWT access and refresh tokens.
+  </Step>
+  <Step title="Create your profile">
+    Depending on your role, create a farmer, buyer, or transporter profile. This unlocks the domain-specific endpoints for your account type.
+  </Step>
+  <Step title="Start transacting">
+    Farmers list produce, buyers browse the catalog and place orders, and the platform coordinates payment, escrow, and delivery automatically.
+  </Step>
+</Steps>
+
+## Key features
+
+- **JWT authentication** with optional OTP email verification for enhanced security
+- **Role-based access control** — buyers, farmers (sellers), and transporters each have scoped permissions
+- **Produce catalog** with category filtering, availability status, and search
+- **Order lifecycle management** from `PENDING` through `COMPLETED` or `CANCELLED`
+- **Squad payment gateway** with escrow, payment splits across farmer/rider/platform, and direct payouts
+- **Virtual accounts** for farmers and transporters to receive funds
+- **Recurring subscriptions** (daily, weekly, monthly) with pause, resume, and cancel support
+- **Delivery tracking** with status updates from pickup to delivery and automatic rider earnings recording
+- **OpenAPI schema** available at `/api/schema/swagger-ui/` powered by drf-spectacular
+
+<Note>
+  The interactive Swagger UI is available at `/api/schema/swagger-ui/` once your server is running. It reflects the live schema generated from your codebase.
+</Note>

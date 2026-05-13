@@ -1,0 +1,555 @@
+---
+title: "Orders API — create and manage orders"
+description: "Place and track orders between buyers and farmers. Manage order items, update order status through its lifecycle, and query by buyer, farmer, or status."
+---
+
+The Orders API handles the full lifecycle of a purchase: creating an order, adding produce line items, and tracking status from placement through delivery. All orders and order-item endpoints require authentication.
+
+Access is scoped by role — buyers see only their own orders, farmers see orders directed to them, and staff can see everything.
+
+<Note>
+  An order links one buyer profile to one farmer profile. Each line item within an order references a specific produce listing.
+</Note>
+
+---
+
+## Orders
+
+### List orders
+
+<code>GET /api/orders/</code>
+
+Returns orders visible to the authenticated user. Buyers see their own orders. Farmers see orders addressed to them. Staff see all orders.
+
+#### Query parameters
+
+<ParamField query="order_status" type="string">
+  Filter by status. One of `PENDING`, `PAID`, `PROCESSING`, `IN_TRANSIT`, `COMPLETED`, `CANCELLED`.
+</ParamField>
+
+<ParamField query="delivery_type" type="string">
+  Filter by delivery method. One of `PICKUP`, `DELIVERY`.
+</ParamField>
+
+<ParamField query="buyer" type="string">
+  Filter by buyer UUID.
+</ParamField>
+
+<ParamField query="farmer" type="string">
+  Filter by farmer UUID.
+</ParamField>
+
+<ParamField query="search" type="string">
+  Search by buyer business name or farm name.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort results. Accepted values: `total`, `-total`, `created_at`, `-created_at`. Defaults to `-created_at`.
+</ParamField>
+
+#### Response fields
+
+<ResponseField name="id" type="string" required>
+  UUID of the order.
+</ResponseField>
+
+<ResponseField name="buyer" type="string" required>
+  UUID of the buyer profile.
+</ResponseField>
+
+<ResponseField name="buyer_business_name" type="string">
+  Business name of the buyer. Read-only.
+</ResponseField>
+
+<ResponseField name="buyer_email" type="string">
+  Email address of the buyer. Read-only.
+</ResponseField>
+
+<ResponseField name="farmer" type="string" required>
+  UUID of the farmer profile.
+</ResponseField>
+
+<ResponseField name="farmer_farm_name" type="string">
+  Name of the farm. Read-only.
+</ResponseField>
+
+<ResponseField name="farmer_user_email" type="string">
+  Email address of the farmer. Read-only.
+</ResponseField>
+
+<ResponseField name="total" type="string" required>
+  Total order amount as a decimal string.
+</ResponseField>
+
+<ResponseField name="order_status" type="string" required>
+  Current order status. One of `PENDING`, `PAID`, `PROCESSING`, `IN_TRANSIT`, `COMPLETED`, `CANCELLED`.
+</ResponseField>
+
+<ResponseField name="delivery_type" type="string" required>
+  Delivery method. One of `PICKUP`, `DELIVERY`.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 datetime when the order was created. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 datetime of the last update. Read-only.
+</ResponseField>
+
+```bash List orders
+curl --request GET \
+  --url https://api.agropulse.com/api/orders/ \
+  --header "Authorization: Bearer <token>"
+```
+
+---
+
+### Create order
+
+<code>POST /api/orders/</code>
+
+Creates a new order. You must provide valid buyer and farmer UUIDs. The order starts in `PENDING` status.
+
+#### Request body
+
+<ParamField body="buyer" type="string" required>
+  UUID of the buyer profile placing the order.
+</ParamField>
+
+<ParamField body="farmer" type="string" required>
+  UUID of the farmer profile receiving the order.
+</ParamField>
+
+<ParamField body="total" type="string" required>
+  Total order value as a decimal string (e.g. `"125.00"`). Up to 10 digits, 2 decimal places.
+</ParamField>
+
+<ParamField body="delivery_type" type="string" required>
+  Delivery method. One of `PICKUP`, `DELIVERY`.
+</ParamField>
+
+<ParamField body="order_status" type="string" default="PENDING">
+  Initial order status. Defaults to `PENDING`.
+</ParamField>
+
+<CodeGroup>
+
+```bash Create order
+curl --request POST \
+  --url https://api.agropulse.com/api/orders/ \
+  --header "Authorization: Bearer <token>" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "buyer": "1ab23c45-6789-0def-ghij-klmnopqrstuv",
+    "farmer": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "total": "125.00",
+    "delivery_type": "DELIVERY"
+  }'
+```
+
+</CodeGroup>
+
+```json 201 Response
+{
+  "id": "9bd12e45-1234-5678-abcd-ef0123456789",
+  "buyer": "1ab23c45-6789-0def-ghij-klmnopqrstuv",
+  "buyer_business_name": "FreshMart Ltd",
+  "buyer_email": "orders@freshmart.com",
+  "farmer": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "farmer_farm_name": "Green Valley Farm",
+  "farmer_user_email": "ada@greenvalley.com",
+  "total": "125.00",
+  "order_status": "PENDING",
+  "delivery_type": "DELIVERY",
+  "created_at": "2025-04-16T10:00:00Z",
+  "updated_at": "2025-04-16T10:00:00Z"
+}
+```
+
+---
+
+### Get order detail
+
+<code>GET /api/orders/{id}/</code>
+
+Returns full order details including expanded buyer and farmer information, plus all line items nested under `items`.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the order.
+</ParamField>
+
+#### Response fields
+
+<ResponseField name="id" type="string" required>
+  UUID of the order.
+</ResponseField>
+
+<ResponseField name="buyer" type="string" required>
+  UUID of the buyer profile.
+</ResponseField>
+
+<ResponseField name="buyer_details" type="object">
+  Expanded buyer information. Read-only.
+  <Expandable title="properties">
+    <ResponseField name="business_name" type="string">
+      Registered business name.
+    </ResponseField>
+    <ResponseField name="buyer_type" type="string">
+      Type of buyer (e.g. wholesaler, retailer).
+    </ResponseField>
+    <ResponseField name="location" type="string">
+      Buyer's location.
+    </ResponseField>
+    <ResponseField name="buyer_email" type="string">
+      Email address.
+    </ResponseField>
+    <ResponseField name="buyer_phone" type="string">
+      Phone number.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="farmer" type="string" required>
+  UUID of the farmer profile.
+</ResponseField>
+
+<ResponseField name="farmer_details" type="object">
+  Expanded farmer information. Read-only.
+  <Expandable title="properties">
+    <ResponseField name="farm_name" type="string">
+      Name of the farm.
+    </ResponseField>
+    <ResponseField name="farm_location" type="string">
+      Farm location.
+    </ResponseField>
+    <ResponseField name="farmer_name" type="string">
+      Full name of the farmer.
+    </ResponseField>
+    <ResponseField name="farmer_email" type="string">
+      Email address.
+    </ResponseField>
+    <ResponseField name="farmer_phone" type="string">
+      Phone number.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="items" type="object[]">
+  List of order line items. Read-only.
+  <Expandable title="item properties">
+    <ResponseField name="id" type="string">
+      UUID of the order item.
+    </ResponseField>
+    <ResponseField name="order" type="string">
+      UUID of the parent order.
+    </ResponseField>
+    <ResponseField name="produce" type="string">
+      UUID of the produce listing.
+    </ResponseField>
+    <ResponseField name="produce_name" type="string">
+      Name of the produce.
+    </ResponseField>
+    <ResponseField name="produce_category" type="string">
+      Category of the produce.
+    </ResponseField>
+    <ResponseField name="quantity" type="integer">
+      Number of units ordered.
+    </ResponseField>
+    <ResponseField name="unit_price" type="string">
+      Price per unit at time of order.
+    </ResponseField>
+    <ResponseField name="subtotal" type="string">
+      Line total (`quantity × unit_price`). Auto-calculated on save.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="total" type="string" required>
+  Total order amount.
+</ResponseField>
+
+<ResponseField name="order_status" type="string" required>
+  Current order status.
+</ResponseField>
+
+<ResponseField name="delivery_type" type="string" required>
+  Delivery method.
+</ResponseField>
+
+```bash Get order detail
+curl --request GET \
+  --url https://api.agropulse.com/api/orders/9bd12e45-1234-5678-abcd-ef0123456789/ \
+  --header "Authorization: Bearer <token>"
+```
+
+---
+
+### Update order
+
+<code>PATCH /api/orders/{id}/</code>
+
+Partially updates an order. The most common use is changing `order_status`.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the order to update.
+</ParamField>
+
+#### Request body
+
+<ParamField body="order_status" type="string">
+  New order status. One of `PENDING`, `PAID`, `PROCESSING`, `IN_TRANSIT`, `COMPLETED`, `CANCELLED`.
+</ParamField>
+
+<ParamField body="delivery_type" type="string">
+  Updated delivery method. One of `PICKUP`, `DELIVERY`.
+</ParamField>
+
+<ParamField body="total" type="string">
+  Updated total amount.
+</ParamField>
+
+<Tip>
+  To update only the status, you can also use the dedicated `PATCH /api/orders/{id}/update_status/` action, which validates the value against allowed choices before saving.
+</Tip>
+
+```bash Update order status
+curl --request PATCH \
+  --url https://api.agropulse.com/api/orders/9bd12e45-1234-5678-abcd-ef0123456789/ \
+  --header "Authorization: Bearer <token>" \
+  --header "Content-Type: application/json" \
+  --data '{"order_status": "PAID"}'
+```
+
+---
+
+### Delete order
+
+<code>DELETE /api/orders/{id}/</code>
+
+Permanently deletes an order and all its line items (cascade). Requires authentication.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the order to delete.
+</ParamField>
+
+Returns `204 No Content` on success.
+
+```bash Delete order
+curl --request DELETE \
+  --url https://api.agropulse.com/api/orders/9bd12e45-1234-5678-abcd-ef0123456789/ \
+  --header "Authorization: Bearer <token>"
+```
+
+---
+
+## Order items
+
+Order items represent individual produce lines within an order. Each item records the produce, quantity, unit price, and a subtotal that is calculated automatically on save.
+
+<Note>
+  `subtotal` is read-only. It is computed as `quantity × unit_price` every time an order item is saved. You do not need to supply it in requests.
+</Note>
+
+### List order items
+
+<code>GET /api/order-items/</code>
+
+Returns order items visible to the authenticated user. Buyers see items from their orders. Farmers see items from orders for their produce.
+
+#### Query parameters
+
+<ParamField query="order" type="string">
+  Filter by order UUID.
+</ParamField>
+
+<ParamField query="produce" type="string">
+  Filter by produce UUID.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort results. Accepted values: `unit_price`, `-unit_price`, `quantity`, `-quantity`, `created_at`, `-created_at`. Defaults to `-created_at`.
+</ParamField>
+
+#### Response fields
+
+<ResponseField name="id" type="string" required>
+  UUID of the order item.
+</ResponseField>
+
+<ResponseField name="order" type="string" required>
+  UUID of the parent order.
+</ResponseField>
+
+<ResponseField name="produce" type="string" required>
+  UUID of the produce listing.
+</ResponseField>
+
+<ResponseField name="produce_name" type="string">
+  Name of the produce. Read-only.
+</ResponseField>
+
+<ResponseField name="produce_category" type="string">
+  Category of the produce. Read-only.
+</ResponseField>
+
+<ResponseField name="quantity" type="integer" required>
+  Number of units ordered.
+</ResponseField>
+
+<ResponseField name="unit_price" type="string" required>
+  Price per unit at the time of the order.
+</ResponseField>
+
+<ResponseField name="subtotal" type="string">
+  Auto-calculated line total (`quantity × unit_price`). Read-only.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Creation timestamp. Read-only.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  Last update timestamp. Read-only.
+</ResponseField>
+
+```bash List order items
+curl --request GET \
+  --url "https://api.agropulse.com/api/order-items/?order=9bd12e45-1234-5678-abcd-ef0123456789" \
+  --header "Authorization: Bearer <token>"
+```
+
+---
+
+### Create order item
+
+<code>POST /api/order-items/</code>
+
+Adds a produce line item to an existing order. `subtotal` is calculated automatically — do not include it in the request body.
+
+#### Request body
+
+<ParamField body="order" type="string" required>
+  UUID of the order to add this item to.
+</ParamField>
+
+<ParamField body="produce" type="string" required>
+  UUID of the produce listing being ordered.
+</ParamField>
+
+<ParamField body="quantity" type="integer" required>
+  Number of units to order. Must be a positive integer.
+</ParamField>
+
+<ParamField body="unit_price" type="string" required>
+  Price per unit as a decimal string (e.g. `"8.50"`). Typically copied from the produce listing.
+</ParamField>
+
+<CodeGroup>
+
+```bash Create order item
+curl --request POST \
+  --url https://api.agropulse.com/api/order-items/ \
+  --header "Authorization: Bearer <token>" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "order": "9bd12e45-1234-5678-abcd-ef0123456789",
+    "produce": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "quantity": 10,
+    "unit_price": "8.50"
+  }'
+```
+
+</CodeGroup>
+
+```json 201 Response
+{
+  "id": "aabb1122-3344-5566-7788-99aabbccddee",
+  "order": "9bd12e45-1234-5678-abcd-ef0123456789",
+  "produce": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "produce_name": "Roma Tomatoes",
+  "produce_category": "VEGETABLES",
+  "quantity": 10,
+  "unit_price": "8.50",
+  "subtotal": "85.00",
+  "created_at": "2025-04-16T10:05:00Z",
+  "updated_at": "2025-04-16T10:05:00Z"
+}
+```
+
+---
+
+### Get order item
+
+<code>GET /api/order-items/{id}/</code>
+
+Returns detail for a single order item.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the order item.
+</ParamField>
+
+```bash Get order item
+curl --request GET \
+  --url https://api.agropulse.com/api/order-items/aabb1122-3344-5566-7788-99aabbccddee/ \
+  --header "Authorization: Bearer <token>"
+```
+
+---
+
+### Update order item
+
+<code>PATCH /api/order-items/{id}/</code>
+
+Partially updates an order item. Changing `quantity` or `unit_price` automatically recalculates `subtotal` on save.
+
+#### Path parameters
+
+<ParamField path="id" type="string" required>
+  UUID of the order item to update.
+</ParamField>
+
+#### Request body
+
+<ParamField body="quantity" type="integer">
+  Updated number of units.
+</ParamField>
+
+<ParamField body="unit_price" type="string">
+  Updated price per unit.
+</ParamField>
+
+<Warning>
+  `subtotal` is recalculated on every save. Any value you pass for `subtotal` is ignored — it is always overwritten with `quantity × unit_price`.
+</Warning>
+
+```bash Update order item quantity
+curl --request PATCH \
+  --url https://api.agropulse.com/api/order-items/aabb1122-3344-5566-7788-99aabbccddee/ \
+  --header "Authorization: Bearer <token>" \
+  --header "Content-Type: application/json" \
+  --data '{"quantity": 15}'
+```
+
+```json 200 Response
+{
+  "id": "aabb1122-3344-5566-7788-99aabbccddee",
+  "order": "9bd12e45-1234-5678-abcd-ef0123456789",
+  "produce": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "produce_name": "Roma Tomatoes",
+  "produce_category": "VEGETABLES",
+  "quantity": 15,
+  "unit_price": "8.50",
+  "subtotal": "127.50",
+  "created_at": "2025-04-16T10:05:00Z",
+  "updated_at": "2025-04-16T10:12:00Z"
+}
+```

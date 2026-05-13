@@ -1,0 +1,263 @@
+---
+title: "Authenticate requests to Agropulse"
+description: "Agropulse uses JWT Bearer tokens for authentication. Learn how to get tokens, attach them to requests, refresh them, and verify your identity with OTP."
+---
+
+Agropulse uses JSON Web Tokens (JWT) for authentication. Every protected endpoint requires an `Authorization: Bearer <token>` header. This page explains how to obtain tokens, keep them alive with the refresh flow, and optionally strengthen your account with email OTP verification.
+
+## Get a token
+
+There are two ways to obtain a JWT token pair.
+
+### Option 1 — Login endpoint (recommended)
+
+`POST /api/users/login/` accepts email and password and returns an access token, a refresh token, and the full user object.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://your-api-host/api/users/login/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "ada@example.com",
+    "password": "strongpassword123"
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://your-api-host/api/users/login/",
+    json={"email": "ada@example.com", "password": "strongpassword123"},
+)
+data = response.json()
+access_token = data["access"]
+refresh_token = data["refresh"]
+```
+
+</CodeGroup>
+
+**Response:**
+
+```json
+{
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "3f7e1b2a-...",
+    "full_name": "Ada Okafor",
+    "email": "ada@example.com",
+    "phone_number": "+2348012345678",
+    "role": "BUYER",
+    "is_active": true,
+    "farmer_profile": null,
+    "buyer_profile": null,
+    "transporter_profile": null,
+    "created_at": "2026-05-13T10:00:00Z",
+    "updated_at": "2026-05-13T10:00:00Z"
+  }
+}
+```
+
+### Option 2 — SimpleJWT token endpoint
+
+`POST /api/token/` is the standard SimpleJWT endpoint. It accepts email and password and returns a token pair without the user object.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://your-api-host/api/token/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "ada@example.com",
+    "password": "strongpassword123"
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://your-api-host/api/token/",
+    json={"email": "ada@example.com", "password": "strongpassword123"},
+)
+tokens = response.json()
+```
+
+</CodeGroup>
+
+**Response:**
+
+```json
+{
+  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+<Note>
+  Use `POST /api/users/login/` when you need the user object alongside the tokens (for example, to read the user's role immediately after sign-in). Use `POST /api/token/` for a lightweight token-only flow.
+</Note>
+
+## Pass the token in requests
+
+Include the access token as a Bearer token in the `Authorization` header of every protected request:
+
+```bash
+Authorization: Bearer <your-access-token>
+```
+
+**Example:**
+
+<CodeGroup>
+
+```bash curl
+curl https://your-api-host/api/users/me/ \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+```python Python
+import requests
+
+headers = {"Authorization": f"Bearer {access_token}"}
+response = requests.get("https://your-api-host/api/users/me/", headers=headers)
+print(response.json())
+```
+
+</CodeGroup>
+
+## Refresh an access token
+
+Access tokens expire. When a request returns `401 Unauthorized`, use your refresh token to get a new access token without asking the user to log in again.
+
+**Endpoint:** `POST /api/token/refresh/`
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://your-api-host/api/token/refresh/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://your-api-host/api/token/refresh/",
+    json={"refresh": refresh_token},
+)
+new_access_token = response.json()["access"]
+```
+
+</CodeGroup>
+
+**Response:**
+
+```json
+{
+  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+<Note>
+  Store both the access token and the refresh token securely. Refresh tokens are long-lived — treat them like passwords. Never expose them in client-side JavaScript or version control.
+</Note>
+
+## OTP email verification
+
+Agropulse includes optional two-factor authentication via email OTP. The `EmailOTPRequestView` and `EmailOTPVerifyView` are implemented in the codebase and the `IsOTPVerified` permission class is available for protecting endpoints. Both OTP views require an authenticated request (you must already have a valid access token).
+
+<Note>
+  The OTP endpoints must be wired to URL paths in your deployment's `urls.py` before they are callable. The views are available at `core_agropulse.accounts.views.EmailOTPRequestView` and `core_agropulse.accounts.views.EmailOTPVerifyView`. Example URL configuration:
+
+  ```python
+  from core_agropulse.accounts.views import EmailOTPRequestView, EmailOTPVerifyView
+
+  urlpatterns += [
+      path("api/otp/request/", EmailOTPRequestView.as_view(), name="otp-request"),
+      path("api/otp/verify/", EmailOTPVerifyView.as_view(), name="otp-verify"),
+  ]
+  ```
+</Note>
+
+### Step 1 — Request an OTP
+
+Once routed, `POST /api/otp/request/` generates a one-time password and sends it to the email address on the authenticated user's account. No request body is needed.
+
+```bash
+curl -X POST https://your-api-host/api/otp/request/ \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+**Response:**
+
+```json
+{
+  "message": "OTP sent to ada@example.com"
+}
+```
+
+### Step 2 — Verify the OTP
+
+`POST /api/otp/verify/` accepts the 6-character token from the email.
+
+```bash
+curl -X POST https://your-api-host/api/otp/verify/ \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"token": "482910"}'
+```
+
+**Response on success:**
+
+```json
+{
+  "message": "Login verification complete",
+  "verified": true
+}
+```
+
+**Response on failure:**
+
+```json
+{
+  "error": "Invalid or expired token"
+}
+```
+
+<Warning>
+  OTP tokens are single-use and expire after the configured `OTP_EMAIL_TOKEN_VALIDITY` seconds. If verification fails, request a new OTP before retrying.
+</Warning>
+
+## Error reference
+
+| Status | Meaning | What to do |
+|--------|---------|------------|
+| `401 Unauthorized` | Token is missing, expired, or malformed | Refresh the access token with `POST /api/token/refresh/`, or log in again |
+| `400 Bad Request` | Invalid credentials or OTP token | Check the request body for typos; request a new OTP if verifying |
+| `404 Not Found` | No email device found for OTP | Call `POST /api/users/otp/request/` before attempting verification |
+
+<Tip>
+  A `401` on `POST /api/token/refresh/` means the refresh token itself has expired. The user must log in again with their email and password.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Set up your environment and make your first API call end-to-end
+  </Card>
+  <Card title="Roles and profiles" icon="users" href="/concepts/roles-and-profiles">
+    Understand BUYER, SELLER, and TRANSPORTER roles and how they shape access
+  </Card>
+  <Card title="Users API reference" icon="code" href="/api-reference/users">
+    Full reference for all user and profile endpoints
+  </Card>
+  <Card title="Payments and escrow" icon="credit-card" href="/guides/payments-and-escrow">
+    Initiate Squad payments and manage escrow after authenticating
+  </Card>
+</CardGroup>

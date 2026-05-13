@@ -1,0 +1,198 @@
+---
+title: "Escrow API — hold and release funds safely"
+description: "Access and manage escrow accounts that protect buyers and farmers by holding payment funds until delivery is confirmed on Agropulse."
+---
+
+The Escrow API exposes the escrow accounts that Agropulse creates to protect both buyers and farmers. When a payment succeeds with `escrow_enabled: true`, the platform automatically holds the full payment amount in escrow until the buyer confirms delivery. Only then are funds released and a farmer payout queued.
+
+<Note>
+  Escrow accounts are read-only through the API. They are created automatically by the platform when a payment is verified — you cannot create or delete them directly. Fund release is triggered via `POST /api/escrow/{id}/release_funds/` once the associated delivery reaches `DELIVERED` status.
+</Note>
+
+---
+
+## How escrow works
+
+<Steps>
+  <Step title="Payment verified">
+    A buyer completes payment through the Squad checkout. The platform verifies the transaction and sets `payment_status` to `SUCCESS`.
+  </Step>
+  <Step title="Escrow created">
+    Because `escrow_enabled` is `true`, `PaymentService.create_escrow` runs automatically. An `EscrowAccount` is created with `release_status: HELD` and `amount_held` equal to the full payment amount.
+  </Step>
+  <Step title="Delivery confirmed">
+    The rider updates the delivery record to `DELIVERED`. The buyer or platform staff can now call the release endpoint.
+  </Step>
+  <Step title="Funds released">
+    The escrow `release_status` transitions to `RELEASED`, `released_at` is stamped, and a `FARMER` payout record is created for `farmer_amount` from the payment split.
+  </Step>
+</Steps>
+
+---
+
+## Endpoints
+
+### List escrow accounts
+
+<ResponseField name="GET /api/escrow/" type="endpoint" />
+
+Returns escrow accounts visible to the authenticated user. Farmers see only their own escrow accounts. Staff see all. Supports filtering by `release_status` and `farmer`, and ordering by `created_at` or `amount_held`.
+
+**Query parameters**
+
+<ParamField query="release_status" type="string">
+  Filter by status. One of `HELD`, `RELEASED`, `DISPUTED`.
+</ParamField>
+
+<ParamField query="farmer" type="string">
+  Filter by farmer profile UUID (staff only).
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort field. Prefix with `-` for descending. Options: `created_at`, `amount_held`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List all escrow accounts
+curl --request GET \
+  --url https://api.agropulse.com/api/escrow/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter held funds
+curl --request GET \
+  --url 'https://api.agropulse.com/api/escrow/?release_status=HELD' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+---
+
+### Get escrow account detail
+
+<ResponseField name="GET /api/escrow/{id}/" type="endpoint" />
+
+Returns the full detail for a single escrow account.
+
+<ParamField path="id" type="string" required>
+  UUID of the escrow account.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get escrow detail
+curl --request GET \
+  --url https://api.agropulse.com/api/escrow/c3d4e5f6-0000-0000-0000-000000000003/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json Response
+{
+  "id": "c3d4e5f6-0000-0000-0000-000000000003",
+  "payment": "a1b2c3d4-0000-0000-0000-000000000001",
+  "payment_id": "a1b2c3d4-0000-0000-0000-000000000001",
+  "farmer": "f1a2b3c4-0000-0000-0000-000000000010",
+  "farmer_name": "Emeka Okonkwo",
+  "amount_held": "15000.00",
+  "release_status": "HELD",
+  "released_at": null,
+  "created_at": "2026-05-13T10:01:00Z",
+  "updated_at": "2026-05-13T10:01:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+## EscrowAccount object reference
+
+<ResponseField name="id" type="string">
+  UUID primary key.
+</ResponseField>
+
+<ResponseField name="payment" type="string">
+  UUID of the payment that created this escrow (one-to-one).
+</ResponseField>
+
+<ResponseField name="payment_id" type="string">
+  Alias for the parent payment UUID (read-only convenience field).
+</ResponseField>
+
+<ResponseField name="farmer" type="string">
+  UUID of the farmer profile whose funds are being held.
+</ResponseField>
+
+<ResponseField name="farmer_name" type="string">
+  Farmer's full name (read-only, denormalized).
+</ResponseField>
+
+<ResponseField name="amount_held" type="string">
+  Decimal amount held in NGN. Equal to the full payment amount at creation.
+</ResponseField>
+
+<ResponseField name="release_status" type="string">
+  Current escrow state. One of:
+
+  - `HELD` — funds are locked pending delivery confirmation.
+  - `RELEASED` — delivery was confirmed, funds have been disbursed to the farmer.
+  - `DISPUTED` — a dispute has been raised; funds remain locked pending resolution.
+</ResponseField>
+
+<ResponseField name="released_at" type="string">
+  ISO 8601 timestamp of when the escrow was released. `null` while still held or disputed.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 last-update timestamp.
+</ResponseField>
+
+---
+
+## Release conditions
+
+<Warning>
+  Calling `POST /api/escrow/{id}/release_funds/` on an escrow that is already `RELEASED` or `DISPUTED` returns a `400 Bad Request`. Check `release_status` before attempting a release.
+</Warning>
+
+Funds can only be released when both conditions are met:
+
+1. The escrow `release_status` is `HELD`.
+2. The order's delivery record has `delivery_status` equal to `DELIVERED`.
+
+On a successful release:
+
+- `release_status` transitions to `RELEASED`.
+- `released_at` is set to the current timestamp.
+- A `Payout` record with `payout_type: FARMER` is created for the `farmer_amount` from the associated `PaymentSplit`.
+
+<CodeGroup>
+
+```bash Release escrow funds
+curl --request POST \
+  --url https://api.agropulse.com/api/escrow/c3d4e5f6-0000-0000-0000-000000000003/release_funds/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json Response
+{
+  "id": "c3d4e5f6-0000-0000-0000-000000000003",
+  "payment": "a1b2c3d4-0000-0000-0000-000000000001",
+  "payment_id": "a1b2c3d4-0000-0000-0000-000000000001",
+  "farmer": "f1a2b3c4-0000-0000-0000-000000000010",
+  "farmer_name": "Emeka Okonkwo",
+  "amount_held": "15000.00",
+  "release_status": "RELEASED",
+  "released_at": "2026-05-13T14:30:00Z",
+  "created_at": "2026-05-13T10:01:00Z",
+  "updated_at": "2026-05-13T14:30:00Z"
+}
+```
+
+</CodeGroup>

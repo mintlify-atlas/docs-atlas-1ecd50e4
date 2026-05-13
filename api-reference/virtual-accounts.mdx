@@ -1,0 +1,410 @@
+---
+title: "Virtual Accounts API — fund collection accounts"
+description: "Manage Squad-powered virtual bank accounts for farmers and transporters on Agropulse. Each account belongs to either a farmer or transporter, never both."
+---
+
+The Virtual Accounts API lets you provision dedicated Nigerian bank account numbers for farmers and transporters. Each virtual account is backed by Squad's virtual account infrastructure and routes incoming transfers directly to the account holder. Transactions received by a virtual account are recorded as `VirtualAccountTransaction` records via Squad webhook.
+
+<Note>
+  A virtual account belongs to **either** a farmer **or** a transporter — never both. The model enforces this constraint at the database level; requests that set both `farmer` and `transporter` will be rejected.
+</Note>
+
+---
+
+## Endpoints
+
+### List virtual accounts
+
+<ResponseField name="GET /api/virtual-accounts/" type="endpoint" />
+
+Returns virtual accounts visible to the authenticated user. Farmers see their own accounts, transporters see their own, and staff see all. Supports filtering by `is_active` and `bank_name`.
+
+**Query parameters**
+
+<ParamField query="is_active" type="boolean">
+  Filter by active status. `true` or `false`.
+</ParamField>
+
+<ParamField query="bank_name" type="string">
+  Filter by bank name (exact match).
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort field. Prefix with `-` for descending. Options: `created_at`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List virtual accounts
+curl --request GET \
+  --url https://api.agropulse.com/api/virtual-accounts/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter active accounts
+curl --request GET \
+  --url 'https://api.agropulse.com/api/virtual-accounts/?is_active=true' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+---
+
+### Create virtual account
+
+<ResponseField name="POST /api/virtual-accounts/" type="endpoint" />
+
+Provisions a new virtual account through Squad and stores the account details. Provide account holder KYC details. Set either `farmer` or `transporter` to assign ownership.
+
+<Warning>
+  You must set exactly one of `farmer` or `transporter`. Providing both or neither will fail validation.
+</Warning>
+
+**Request body**
+
+<ParamField body="farmer" type="string">
+  UUID of the farmer profile to assign this account to.
+</ParamField>
+
+<ParamField body="transporter" type="string">
+  UUID of the transporter profile to assign this account to.
+</ParamField>
+
+<ParamField body="first_name" type="string" required>
+  Account holder's first name (KYC).
+</ParamField>
+
+<ParamField body="last_name" type="string" required>
+  Account holder's last name (KYC).
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Account holder's email address (KYC).
+</ParamField>
+
+<ParamField body="mobile_num" type="string" required>
+  Account holder's mobile number, up to 14 digits.
+</ParamField>
+
+<ParamField body="bvn" type="string" required>
+  Bank Verification Number, 11 digits.
+</ParamField>
+
+<ParamField body="virtual_account_number" type="string" required>
+  The account number returned by Squad after provisioning.
+</ParamField>
+
+<ParamField body="bank_name" type="string" required>
+  Name of the bank assigned by Squad.
+</ParamField>
+
+<ParamField body="account_name" type="string" required>
+  Account name as registered with the bank.
+</ParamField>
+
+<CodeGroup>
+
+```bash Create virtual account for farmer
+curl --request POST \
+  --url https://api.agropulse.com/api/virtual-accounts/ \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "farmer": "f1a2b3c4-0000-0000-0000-000000000010",
+    "first_name": "Emeka",
+    "last_name": "Okonkwo",
+    "email": "emeka@farm.ng",
+    "mobile_num": "08012345678",
+    "bvn": "12345678901",
+    "virtual_account_number": "9901234567",
+    "bank_name": "Wema Bank",
+    "account_name": "AGROPULSE/EMEKA OKONKWO"
+  }'
+```
+
+```json Response
+{
+  "id": "e5f6a7b8-0000-0000-0000-000000000005",
+  "transporter": null,
+  "transporter_name": null,
+  "farmer": "f1a2b3c4-0000-0000-0000-000000000010",
+  "farmer_name": "Emeka Okonkwo",
+  "virtual_account_number": "9901234567",
+  "bank_name": "Wema Bank",
+  "account_name": "AGROPULSE/EMEKA OKONKWO",
+  "first_name": "Emeka",
+  "last_name": "Okonkwo",
+  "email": "emeka@farm.ng",
+  "mobile_num": "08012345678",
+  "bvn": "12345678901",
+  "is_active": true,
+  "created_at": "2026-05-13T09:00:00Z",
+  "updated_at": "2026-05-13T09:00:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+### Get virtual account detail
+
+<ResponseField name="GET /api/virtual-accounts/{id}/" type="endpoint" />
+
+Returns the full detail view for a single virtual account, including nested farmer or transporter profile information.
+
+<ParamField path="id" type="string" required>
+  UUID of the virtual account.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get virtual account detail
+curl --request GET \
+  --url https://api.agropulse.com/api/virtual-accounts/e5f6a7b8-0000-0000-0000-000000000005/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json Response
+{
+  "id": "e5f6a7b8-0000-0000-0000-000000000005",
+  "transporter": null,
+  "transporter_details": null,
+  "farmer": "f1a2b3c4-0000-0000-0000-000000000010",
+  "farmer_details": {
+    "id": "f1a2b3c4-0000-0000-0000-000000000010",
+    "name": "Emeka Okonkwo",
+    "email": "emeka@farm.ng",
+    "farm_name": "Okonkwo Farms"
+  },
+  "virtual_account_number": "9901234567",
+  "bank_name": "Wema Bank",
+  "account_name": "AGROPULSE/EMEKA OKONKWO",
+  "first_name": "Emeka",
+  "last_name": "Okonkwo",
+  "email": "emeka@farm.ng",
+  "mobile_num": "08012345678",
+  "bvn": "12345678901",
+  "is_active": true,
+  "created_at": "2026-05-13T09:00:00Z",
+  "updated_at": "2026-05-13T09:00:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+## VirtualAccount object reference
+
+<ResponseField name="id" type="string">
+  UUID primary key.
+</ResponseField>
+
+<ResponseField name="farmer" type="string">
+  UUID of the farmer profile that owns this account. `null` for transporter accounts.
+</ResponseField>
+
+<ResponseField name="farmer_name" type="string">
+  Farmer's full name (read-only). `null` for transporter accounts.
+</ResponseField>
+
+<ResponseField name="transporter" type="string">
+  UUID of the transporter profile that owns this account. `null` for farmer accounts.
+</ResponseField>
+
+<ResponseField name="transporter_name" type="string">
+  Transporter's full name (read-only). `null` for farmer accounts.
+</ResponseField>
+
+<ResponseField name="virtual_account_number" type="string">
+  The bank account number assigned to this virtual account. Unique across the platform.
+</ResponseField>
+
+<ResponseField name="bank_name" type="string">
+  Name of the bank holding the virtual account (e.g. `Wema Bank`).
+</ResponseField>
+
+<ResponseField name="account_name" type="string">
+  Account name as it appears on the bank's system, typically in `AGROPULSE/FIRSTNAME LASTNAME` format.
+</ResponseField>
+
+<ResponseField name="first_name" type="string">
+  Account holder's first name (KYC field).
+</ResponseField>
+
+<ResponseField name="last_name" type="string">
+  Account holder's last name (KYC field).
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Account holder's email address (KYC field).
+</ResponseField>
+
+<ResponseField name="mobile_num" type="string">
+  Account holder's phone number, up to 14 digits (KYC field).
+</ResponseField>
+
+<ResponseField name="bvn" type="string">
+  Bank Verification Number, 11 digits (KYC field).
+</ResponseField>
+
+<ResponseField name="is_active" type="boolean">
+  Whether the virtual account is currently active and accepting transfers.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 last-update timestamp.
+</ResponseField>
+
+---
+
+## Virtual account transactions
+
+Incoming transfers to a virtual account are captured as `VirtualAccountTransaction` records. These are created automatically from Squad webhooks — there is no create endpoint.
+
+### List transactions
+
+<ResponseField name="GET /api/virtual-account-transactions/" type="endpoint" />
+
+Returns transactions visible to the authenticated user. Farmers and transporters see transactions for their own virtual accounts. Staff see all. Supports filtering by `virtual_account` and `webhook_processed`, and ordering by `transaction_date` or `created_at`.
+
+**Query parameters**
+
+<ParamField query="virtual_account" type="string">
+  Filter by virtual account UUID.
+</ParamField>
+
+<ParamField query="webhook_processed" type="boolean">
+  Filter by webhook processing status. `true` or `false`.
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort field. Prefix with `-` for descending. Options: `transaction_date`, `created_at`.
+</ParamField>
+
+<CodeGroup>
+
+```bash List transactions
+curl --request GET \
+  --url https://api.agropulse.com/api/virtual-account-transactions/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter by account
+curl --request GET \
+  --url 'https://api.agropulse.com/api/virtual-account-transactions/?virtual_account=e5f6a7b8-0000-0000-0000-000000000005' \
+  --header 'Authorization: Bearer <token>'
+```
+
+</CodeGroup>
+
+---
+
+### Get transaction detail
+
+<ResponseField name="GET /api/virtual-account-transactions/{id}/" type="endpoint" />
+
+Returns a single virtual account transaction.
+
+<ParamField path="id" type="string" required>
+  UUID of the transaction.
+</ParamField>
+
+<CodeGroup>
+
+```bash Get transaction detail
+curl --request GET \
+  --url https://api.agropulse.com/api/virtual-account-transactions/f6a7b8c9-0000-0000-0000-000000000006/ \
+  --header 'Authorization: Bearer <token>'
+```
+
+```json Response
+{
+  "id": "f6a7b8c9-0000-0000-0000-000000000006",
+  "virtual_account": "e5f6a7b8-0000-0000-0000-000000000005",
+  "virtual_account_number": "9901234567",
+  "account_owner": {
+    "type": "farmer",
+    "name": "Emeka Okonkwo",
+    "farm_name": "Okonkwo Farms"
+  },
+  "transaction_reference": "TXN-20260513-001",
+  "pricipal_amount": "5000.00",
+  "settled_amount": "4975.00",
+  "fee": "25.00",
+  "sender": "JOHN DOE",
+  "remarks": "Payment for produce",
+  "currency": "NGN",
+  "transaction_date": "2026-05-13T11:30:00Z",
+  "webhook_processed": true,
+  "created_at": "2026-05-13T11:31:00Z"
+}
+```
+
+</CodeGroup>
+
+---
+
+## VirtualAccountTransaction object reference
+
+<ResponseField name="id" type="string">
+  UUID primary key.
+</ResponseField>
+
+<ResponseField name="virtual_account" type="string">
+  UUID of the virtual account that received this transfer.
+</ResponseField>
+
+<ResponseField name="virtual_account_number" type="string">
+  The bank account number of the receiving virtual account (read-only).
+</ResponseField>
+
+<ResponseField name="account_owner" type="object">
+  Summary of the account owner. Contains `type` (`"farmer"` or `"transporter"`), `name`, and either `farm_name` or `vehicle_type`.
+</ResponseField>
+
+<ResponseField name="transaction_reference" type="string">
+  Unique reference for this transaction, as provided by Squad. Indexed for fast lookups.
+</ResponseField>
+
+<ResponseField name="pricipal_amount" type="string">
+  The gross amount received before fees, in NGN.
+</ResponseField>
+
+<ResponseField name="settled_amount" type="string">
+  The net amount after Squad fees are deducted, in NGN.
+</ResponseField>
+
+<ResponseField name="fee" type="string">
+  Squad processing fee deducted from the principal, in NGN.
+</ResponseField>
+
+<ResponseField name="sender" type="string">
+  Name of the sending party as reported by the bank.
+</ResponseField>
+
+<ResponseField name="remarks" type="string">
+  Transfer narrative or reference text provided by the sender.
+</ResponseField>
+
+<ResponseField name="currency" type="string">
+  Currency code. Defaults to `NGN`.
+</ResponseField>
+
+<ResponseField name="transaction_date" type="string">
+  ISO 8601 timestamp of when the transfer occurred.
+</ResponseField>
+
+<ResponseField name="webhook_processed" type="boolean">
+  Whether the incoming Squad webhook for this transaction has been processed by the platform.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 timestamp of when the record was created in the database.
+</ResponseField>
